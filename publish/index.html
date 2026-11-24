@@ -1,0 +1,111 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#ff6f7d">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Daily Joy">
+<meta name="description" content="A cheerful little planner for your daily tasks.">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
+<link rel="icon" type="image/png" href="icons/icon-192.png">
+<link rel="stylesheet" href="styles.css">
+<title>Daily Joy</title>
+<script>
+  // Apply the saved theme before anything paints (no flash of the wrong theme).
+  (function () {
+    var t = null;
+    try { t = localStorage.getItem('dailyjoy.theme'); } catch (e) {}
+    if (t !== 'light' && t !== 'dark') t = matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
+    document.documentElement.dataset.theme = t;
+  })();
+</script>
+</head>
+<body>
+<div class="app" id="app">
+  <header class="hero">
+    <div class="topbar">
+      <div class="brand"><span class="logo" aria-hidden="true">✓</span>Daily Joy</div>
+      <div class="top-actions">
+        <button type="button" id="themeBtn" class="icon-btn" aria-label="Switch theme"></button>
+        <button type="button" id="menuBtn" class="icon-btn" aria-label="More options">•••</button>
+      </div>
+    </div>
+
+    <div class="hero-main">
+      <div class="hero-text">
+        <div id="greet" class="greet"></div>
+        <h1 id="title"></h1>
+        <div id="sub" class="sub"></div>
+      </div>
+      <div class="ring" aria-hidden="true">
+        <svg viewBox="0 0 84 84" width="84" height="84">
+          <circle class="track" cx="42" cy="42" r="35" fill="none" stroke-width="8"/>
+          <circle id="ringBar" class="bar" cx="42" cy="42" r="35" fill="none" stroke-width="8" stroke-linecap="round"/>
+        </svg>
+        <div id="ringLabel" class="ring-label"></div>
+      </div>
+    </div>
+
+    <nav class="week" aria-label="Choose a day">
+      <button type="button" id="prevWeek" class="week-arrow" aria-label="Previous week">‹</button>
+      <div id="days" class="days"></div>
+      <button type="button" id="nextWeek" class="week-arrow" aria-label="Next week">›</button>
+    </nav>
+  </header>
+
+  <main id="main">
+    <div id="installHint" class="hint" hidden>
+      <span class="hint-emoji">📲</span>
+      <div class="hint-text"><b>Put Daily Joy on your Home Screen</b><br>Tap <b>Share</b> <span class="share-ico">⬆︎</span> then <b>Add to Home Screen</b>.</div>
+      <button type="button" id="hintClose" class="hint-close" aria-label="Dismiss">✕</button>
+    </div>
+
+    <form id="addForm" class="add-card" autocomplete="off">
+      <div class="add-row">
+        <span class="spark" aria-hidden="true">✨</span>
+        <input id="newTitle" type="text" placeholder="Add a task… “Gym at 6pm”" enterkeyhint="done" aria-label="New task">
+        <button type="submit" class="add-btn" aria-label="Add task">+</button>
+      </div>
+      <div class="add-chips">
+        <button type="button" id="catChip" class="chip"></button>
+        <button type="button" id="prioChip" class="chip"></button>
+        <label class="chip" id="timeChip"><span id="timeLabel"></span><input type="time" id="newTime" class="native-overlay" aria-label="Time"></label>
+        <button type="button" id="timeClear" class="chip chip-x" aria-label="Clear time" hidden>✕</button>
+      </div>
+    </form>
+
+    <div id="banner" class="banner" hidden>
+      <span id="bannerText"></span>
+      <button type="button" id="bannerBtn" class="btn primary small">Bring to today ☀️</button>
+    </div>
+
+    <div class="filters" role="tablist">
+      <button type="button" data-f="all" role="tab">All<span class="n" id="nAll"></span></button>
+      <button type="button" data-f="todo" role="tab">To do<span class="n" id="nTodo"></span></button>
+      <button type="button" data-f="done" role="tab">Done<span class="n" id="nDone"></span></button>
+    </div>
+    <div id="cats" class="cats"></div>
+
+    <section id="list" class="list" aria-live="polite"></section>
+    <div id="empty" class="empty" hidden></div>
+
+    <div class="quote">
+      <div class="quote-h">💡 Daily spark</div>
+      <div id="quote"></div>
+    </div>
+  </main>
+</div>
+
+<div id="toast" class="toast" role="status"></div>
+<canvas id="fx" aria-hidden="true"></canvas>
+<div id="backdrop" class="backdrop" hidden></div>
+<div id="sheet" class="sheet" role="dialog" aria-modal="true" hidden></div>
+<input type="file" id="importFile" accept=".json,application/json" hidden>
+
+<script src="app.js"></script>
+</body>
+</html>
