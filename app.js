@@ -367,8 +367,8 @@
     say(friendlyAdd(text, time, date, rule));
   }
   // Adds a task (and, when a repeat is chosen, starts its series and creates the coming ones).
-  function createTask(title, date, time, rule) {
-    var t = normalize({ Title: title, Date: key(date), Time: time, Priority: newPrio, Category: newCat, Created: nowTicks() });
+  function createTask(title, date, time, rule, prio, cat) {
+    var t = normalize({ Title: title, Date: key(date), Time: time, Priority: prio === undefined ? newPrio : prio, Category: cat === undefined ? newCat : cat, Created: nowTicks() });
     if (rule && REPEAT[rule]) startSeries(t, rule);
     tasks.push(t);
     if (t.Series) fillRepeats();
@@ -384,49 +384,151 @@
   var SR = window.SpeechRecognition || window.webkitSpeechRecognition;
   var rec = null, listening = false;
   var WDN = ['sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday'];
+  var LANGS = [['', 'Same as my phone'], ['en-US', 'English (US)'], ['en-GB', 'English (UK)'], ['ar-SA', 'العربية (Arabic)'], ['es-ES', 'Español'], ['fr-FR', 'Français'], ['de-DE', 'Deutsch'], ['it-IT', 'Italiano'], ['pt-BR', 'Português'], ['tr-TR', 'Türkçe']];
+  var LANG = 'dailyjoy.lang';
+  function voiceLang() {
+    var v = ''; try { v = localStorage.getItem(LANG) || ''; } catch (e) {}
+    return v || navigator.language || 'en-US';
+  }
   function speak(text) {
     try {
       if (!('speechSynthesis' in window)) return;
       speechSynthesis.cancel();
       var u = new SpeechSynthesisUtterance(text);
-      u.lang = navigator.language || 'en-US';
+      u.lang = /^en/i.test(voiceLang()) ? (navigator.language || 'en-US') : 'en-US';
       speechSynthesis.speak(u);
     } catch (e) {}
   }
-  // "Gym at 6 pm tomorrow" -> { title: "Gym", date: <Date or null>, time: "18:00" or "" }
+  // ---- Smarter voice: understands dates, times, durations, priority, category and several tasks in one go ----
+  var NUMW = { one: 1, two: 2, three: 3, four: 4, five: 5, six: 6, seven: 7, eight: 8, nine: 9, ten: 10, eleven: 11, twelve: 12, fifteen: 15, twenty: 20, thirty: 30 };
+  var MONRX = '(jan(?:uary)?|feb(?:ruary)?|mar(?:ch)?|apr(?:il)?|may|june?|july?|aug(?:ust)?|sep(?:t(?:ember)?)?|oct(?:ober)?|nov(?:ember)?|dec(?:ember)?)';
+  var MONS3 = ['jan', 'feb', 'mar', 'apr', 'may', 'jun', 'jul', 'aug', 'sep', 'oct', 'nov', 'dec'];
+  var PRIO_HIGH = /\s(?:(?:this is |it'?s |that'?s )?(?:very |really |super )?(?:urgent|important|high[- ]priority|top[- ]priority)|asap|as soon as possible|a priority|high priority)(?=\s)/i;
+  var PRIO_LOW = /\s(?:(?:low|lowest)[- ]priority|not urgent|no rush|whenever(?: i can| you can)?|when i can|when i get a chance)(?=\s)/i;
+  var CAT_WORDS = [
+    ['health',   /\b(gym|workout|work out|exercise|run|running|jog|yoga|swim|swimming|doctor|dentist|clinic|medicine|medication|pills?|vitamins?|meditat\w*|stretch\w*|walk|physio|therapy|appointment|checkup)\b/i],
+    ['shopping', /\b(buy|groceries|grocery|shopping|supermarket|store|market|order|purchase|pick up (?:the )?(?:milk|bread|eggs))\b/i],
+    ['learning', /\b(study|homework|assignment|read|reading|course|class|lesson|exam|test|learn\w*|practice|lecture|revise|revision|tutorial)\b/i],
+    ['work',     /\b(meeting|email|e-mail|report|boss|client|office|presentation|deadline|invoice|project|proposal|manager|conference|standup|interview|submit|work)\b/i],
+    ['home',     /\b(clean\w*|laundry|dishes|trash|garbage|cook\w*|vacuum|repair|plumber|garden\w*|rent|bills?|wash\w*|tidy|iron\w*|fix|mop|landlord|electrician)\b/i],
+    ['fun',      /\b(movie|film|party|birthday|dinner|lunch|game|concert|trip|friends?|picnic|cinema|hang out|date night|holiday|vacation|celebrate|barbecue|bbq|coffee with)\b/i]
+  ];
+  function guessCat(title) {
+    for (var i = 0; i < CAT_WORDS.length; i++) if (CAT_WORDS[i][1].test(title)) return CAT_WORDS[i][0];
+    return '';
+  }
+  function dayTime(part) { return { morning: '09:00', afternoon: '14:00', evening: '18:00', tonight: '20:00', night: '21:00' }[part]; }
+  function nextDayOfMonth(day) {
+    var t = today(), d = new Date(t.getFullYear(), t.getMonth(), day);
+    if (d.getDate() !== day || d < t) { d = new Date(t.getFullYear(), t.getMonth() + 1, day); if (d.getDate() !== day) return null; }
+    return d;
+  }
+  // "Gym at 6 pm tomorrow, high priority" ->
+  //   { title: "Gym", date: <Date or null>, time: "18:00" or "", priority: 2 or null, category: "health" or "" }
   function parseSpoken(text) {
-    var s = ' ' + text.replace(/\s+/g, ' ').trim() + ' ', d = null, time = '', m;
-    if ((m = /\s(today|tonight|tomorrow)\s/i.exec(s))) {
-      d = addDays(today(), /tomorrow/i.test(m[1]) ? 1 : 0);
-      s = s.replace(m[0], ' ');
-    } else if ((m = /\s(?:on\s+)?(sunday|monday|tuesday|wednesday|thursday|friday|saturday)\s/i.exec(s))) {
-      var ahead = (WDN.indexOf(m[1].toLowerCase()) - today().getDay() + 7) % 7 || 7;
-      d = addDays(today(), ahead);
+    var s = ' ' + text.replace(/[,;]/g, ' ').replace(/[.!?]+(?=\s|$)/g, '').replace(/\s+/g, ' ').trim() + ' ';
+    var d = null, time = '', priority = null, tonight = false, m;
+    s = s.replace(/\bat\s+(one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve)\b/gi, function (a, w) { return 'at ' + NUMW[w.toLowerCase()]; });
+
+    // priority words
+    if ((m = PRIO_HIGH.exec(s))) { priority = 2; s = s.replace(m[0], ' '); }
+    else if ((m = PRIO_LOW.exec(s))) { priority = 0; s = s.replace(m[0], ' '); }
+
+    // "in 20 minutes", "in two hours", "in an hour", "in half an hour", "in 3 days", "in a week"
+    var amt = '(\\d+(?:\\.\\d+)?|an?|one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve|fifteen|twenty|thirty)';
+    if ((m = /\sin\s+(?:about\s+)?half\s+an?\s+hour(?=\s)/i.exec(s))) { time = '+30'; s = s.replace(m[0], ' '); }
+    else if ((m = /\sin\s+(?:about\s+)?an?\s+hour\s+and\s+a\s+half(?=\s)/i.exec(s))) { time = '+90'; s = s.replace(m[0], ' '); }
+    else if ((m = new RegExp('\\sin\\s+(?:about\\s+)?' + amt + '\\s*(minutes?|mins?|hours?|hrs?|days?|weeks?)(?=\\s)', 'i').exec(s))) {
+      var raw = m[1].toLowerCase(), n = /^an?$/.test(raw) ? 1 : (NUMW[raw] || parseFloat(raw)), unit = m[2].toLowerCase()[0];
+      if (unit === 'm') time = '+' + Math.round(n);
+      else if (unit === 'h') time = '+' + Math.round(n * 60);
+      else d = addDays(today(), Math.round(n) * (unit === 'w' ? 7 : 1));
       s = s.replace(m[0], ' ');
     }
-    if ((m = /\s(?:at\s+)?noon\s/i.exec(s))) {
-      time = '12:00'; s = s.replace(m[0], ' ');
-    } else if ((m = /\s(?:at\s+)?(\d{1,2})(?:[:.](\d{2}))?\s*(a\.?m\.?|p\.?m\.?)(?![a-z])/i.exec(s))) {
-      var h = +m[1], mi = m[2] ? +m[2] : 0;
-      if (h >= 1 && h <= 12 && mi <= 59) {
+    if (/^\+\d+$/.test(time)) {                          // a time counted from now
+      var at = new Date(Date.now() + (+time.slice(1)) * 60000);
+      d = new Date(at.getFullYear(), at.getMonth(), at.getDate());
+      time = pad(at.getHours()) + ':' + pad(at.getMinutes());
+    }
+
+    // dates
+    if (!d) {
+      if ((m = /\s(?:the\s+)?day after tomorrow(?=\s)/i.exec(s))) { d = addDays(today(), 2); s = s.replace(m[0], ' '); }
+      else if ((m = /\s(today|tonight|tomorrow)(?=\s)/i.exec(s))) {
+        d = addDays(today(), /tomorrow/i.test(m[1]) ? 1 : 0); tonight = /tonight/i.test(m[1]); s = s.replace(m[0], ' ');
+      }
+      else if ((m = /\s(?:on\s+)?(?:the\s+)?(\d{1,2})(?:st|nd|rd|th)?\s+(?:of\s+)?(?:the\s+)?month\s+of\s+/i.exec(s))) { /* unlikely phrase: ignore */ }
+      if (!d && (m = new RegExp('\\s(?:on\\s+)?(?:the\\s+)?(\\d{1,2})(?:st|nd|rd|th)?\\s+(?:of\\s+)?' + MONRX + '(?=\\s)', 'i').exec(s))) {
+        d = dateOf(MONS3.indexOf(m[2].toLowerCase().slice(0, 3)), +m[1]); if (d) s = s.replace(m[0], ' ');
+      }
+      if (!d && (m = new RegExp('\\s(?:on\\s+)?' + MONRX + '\\s+(?:the\\s+)?(\\d{1,2})(?:st|nd|rd|th)?(?=\\s)', 'i').exec(s))) {
+        d = dateOf(MONS3.indexOf(m[1].toLowerCase().slice(0, 3)), +m[2]); if (d) s = s.replace(m[0], ' ');
+      }
+      if (!d && (m = /\s(?:on\s+)?the\s+(\d{1,2})(?:st|nd|rd|th)(?=\s)/i.exec(s))) {
+        d = +m[1] >= 1 && +m[1] <= 31 ? nextDayOfMonth(+m[1]) : null; if (d) s = s.replace(m[0], ' ');
+      }
+      if (!d && (m = /\s(?:this\s+|on\s+the\s+|on\s+)?weekend(?=\s)/i.exec(s))) {
+        d = addDays(today(), (6 - today().getDay() + 7) % 7); s = s.replace(m[0], ' ');
+      }
+      if (!d && (m = /\snext\s+week(?=\s)/i.exec(s))) { d = addDays(today(), 7); s = s.replace(m[0], ' '); }
+      if (!d && (m = /\s(?:on\s+)?(?:this\s+|next\s+)?(sunday|monday|tuesday|wednesday|thursday|friday|saturday)(?=\s)/i.exec(s))) {
+        d = addDays(today(), (WDN.indexOf(m[1].toLowerCase()) - today().getDay() + 7) % 7 || 7); s = s.replace(m[0], ' ');
+      }
+    }
+
+    // times
+    if (!time) {
+      var h, mi;
+      if ((m = /\s(?:at\s+)?noon(?=\s)/i.exec(s))) { time = '12:00'; s = s.replace(m[0], ' '); }
+      else if ((m = /\s(?:at\s+)?midnight(?=\s)/i.exec(s))) { time = '00:00'; s = s.replace(m[0], ' '); }
+      else if ((m = /\s(?:at\s+)?(half|quarter)\s+(past|to)\s+(\d{1,2})(?=\s)/i.exec(s)) && +m[3] >= 1 && +m[3] <= 12) {
+        h = +m[3]; if (h >= 1 && h <= 6 && !/morning/i.test(s)) h += 12;
+        mi = /^h/i.test(m[1]) ? 30 : (/^p/i.test(m[2]) ? 15 : 45);
+        if (/^t/i.test(m[2])) h -= 1;
+        time = pad(h % 24) + ':' + pad(mi); s = s.replace(m[0], ' ');
+      }
+      else if ((m = /\s(?:at\s+)?(\d{1,2})(?:[:.](\d{2}))?\s*(?:o'?clock\s*)?(?:in the|at|this)\s+(morning|afternoon|evening|night)(?=\s)/i.exec(s)) && +m[1] >= 1 && +m[1] <= 12) {
+        h = +m[1]; mi = m[2] ? +m[2] : 0; var part = m[3].toLowerCase();
+        if (part === 'morning') { if (h === 12) h = 0; }
+        else if (part === 'night') { if (h === 12) h = 0; else if (h >= 6) h += 12; }
+        else if (h < 12) h += 12;
+        time = pad(h) + ':' + pad(mi); s = s.replace(m[0], ' ');
+      }
+      else if ((m = /\s(?:at\s+)?(\d{1,2})(?:[:.](\d{2}))?\s*(a\.?m\.?|p\.?m\.?)(?![a-z])/i.exec(s)) && +m[1] >= 1 && +m[1] <= 12 && (m[2] ? +m[2] : 0) <= 59) {
+        h = +m[1]; mi = m[2] ? +m[2] : 0;
         var pm = /^p/i.test(m[3]);
         if (pm && h < 12) h += 12;
         if (!pm && h === 12) h = 0;
         time = pad(h) + ':' + pad(mi); s = s.replace(m[0], ' ');
       }
-    } else if ((m = /\sat\s+(\d{1,2})(?::(\d{2}))?(?=\s|$)/i.exec(s))) {
-      var h2 = +m[1], mi2 = m[2] ? +m[2] : 0;
-      if (h2 <= 23 && mi2 <= 59) {
-        if (h2 >= 1 && h2 <= 6) h2 += 12; // "at 6" usually means the evening
-        time = pad(h2) + ':' + pad(mi2); s = s.replace(m[0], ' ');
+      else if ((m = /\sat\s+(\d{1,2})(?::(\d{2}))?(?:\s*o'?clock)?(?=\s)/i.exec(s)) && +m[1] <= 23 && (m[2] ? +m[2] : 0) <= 59) {
+        h = +m[1]; mi = m[2] ? +m[2] : 0;
+        if (h >= 1 && h <= 6) h += 12;                  // "at 6" usually means the evening
+        else if (tonight && h < 12) h += 12;
+        time = pad(h) + ':' + pad(mi); s = s.replace(m[0], ' ');
       }
+      if (!time && (m = /\s(?:in the\s+|this\s+)?(morning|afternoon|evening|tonight|night)(?=\s)/i.exec(s))) {
+        time = dayTime(m[1].toLowerCase()); s = s.replace(m[0], ' ');
+        if (/^(tonight|night)$/i.test(m[1]) && !d) d = today();
+      }
+      if (!time && tonight) time = dayTime('tonight');
     }
+
     var title = s.replace(/\s+/g, ' ').trim()
-      .replace(/\s+(at|on|by|for)$/i, '')
-      .replace(/^(remind me to|reminder to|remember to|i need to)\s+/i, '').trim();
+      .replace(/^(?:please\s+)?(?:remind me|reminder|remember|don'?t forget|i need|i have|i should|i must|i want|add (?:a |an )?(?:task|reminder)|set (?:a |an )?reminder)(?:\s+(?:to|for|about|that))?\s+/i, '')
+      .replace(/^(?:to|and|then)\s+/i, '')
+      .replace(/\s+(at|on|by|for|to|in|and|then|the|this|next)$/i, '').trim();
     if (!title) title = text.trim();
     title = title.charAt(0).toUpperCase() + title.slice(1);
-    return { title: title, date: d, time: time };
+    return { title: title, date: d, time: time, priority: priority, category: guessCat(title) };
+  }
+  // month index + day -> the next such date (this year, or next year if it already passed)
+  function dateOf(month, day) {
+    if (month < 0 || day < 1 || day > 31) return null;
+    var t = today(), d = new Date(t.getFullYear(), month, day);
+    if (d.getMonth() !== month) return null;
+    if (d < t) d = new Date(t.getFullYear() + 1, month, day);
+    return d.getMonth() === month ? d : null;
   }
   function spokenDay(d) {
     var n = diffDays(d, today());
@@ -434,17 +536,34 @@
     if (n === 1) return 'tomorrow';
     return WDL[d.getDay()] + ', ' + MON[d.getMonth()] + ' ' + d.getDate();
   }
+  // One sentence can hold several tasks: "gym at 6pm then call mom tomorrow at noon".
+  var SPLIT_RX = /\s+(?:and then|and also|and remind me to|and remember to|and don'?t forget to|then|also|next task|another task|another reminder|new task|new reminder)\s+/i;
   function addByVoice(text) {
-    var rp = extractRepeat(text), rule = newRepeat, wd = null;
-    if (rp) { text = rp.rest; rule = rp.rule; wd = rp.weekday; }
-    var p = parseSpoken(text), when = p.date || view, time = p.time || newTime;
-    if (wd !== null) when = nextWeekday(today(), wd);
-    createTask(p.title, when, time, rule);
+    var parts = text.split(SPLIT_RX).map(function (x) { return x.trim(); }).filter(Boolean);
+    if (!parts.length) return;
+    var added = [];
+    parts.forEach(function (part) {
+      var rp = extractRepeat(part), rule = newRepeat, wd = null;
+      if (rp) { part = rp.rest; rule = rp.rule; wd = rp.weekday; }
+      var p = parseSpoken(part), when = p.date || view, time = p.time || newTime;
+      if (wd !== null) when = nextWeekday(today(), wd);
+      var prio = p.priority !== null ? p.priority : newPrio;
+      var cat = newCat === 'general' && p.category ? p.category : newCat;
+      createTask(p.title, when, time, rule, prio, cat);
+      added.push({ p: p, when: when, time: time, rule: rule, prio: prio, cat: cat });
+    });
     newRepeat = '';
     if (filter === 'done') filter = 'all';
+    if (catFilter) catFilter = null;
     render();
     sparkle($('micBtn'), 14);
-    var msg = 'Added ' + p.title + (time ? ' at ' + timeDisp(time) : '') + (rule ? ', ' + REPEAT[rule].say : ', ' + spokenDay(when)) + '.';
+    var msg;
+    if (added.length === 1) {
+      var a = added[0];
+      msg = 'Added ' + a.p.title + (a.time ? ' at ' + timeDisp(a.time) : '') + (a.rule ? ', ' + REPEAT[a.rule].say : ', ' + spokenDay(a.when)) + (a.prio === 2 ? ', high priority' : a.prio === 0 && a.p.priority === 0 ? ', low priority' : '') + '.';
+    } else {
+      msg = 'Added ' + added.length + ' tasks: ' + added.map(function (a) { return a.p.title; }).join(', ') + '.';
+    }
     say(msg + ' ✅');
     speak(msg);
   }
@@ -459,7 +578,7 @@
     if (listening) { try { rec.stop(); } catch (e) {} return; }
     var input = $('newTitle'), prev = input.value, heard = '', full = '';
     try { rec = new SR(); } catch (e) { say('Voice isn’t available here 🎙️'); return; }
-    rec.lang = navigator.language || 'en-US';
+    rec.lang = voiceLang();
     rec.interimResults = true;
     rec.continuous = false;
     rec.maxAlternatives = 1;
@@ -683,6 +802,21 @@
     });
   }
 
+  function langSheet() {
+    var cur = ''; try { cur = localStorage.getItem(LANG) || ''; } catch (e) {}
+    var html = '<h2>Voice language</h2><div class="opts">';
+    LANGS.forEach(function (l) {
+      html += '<button type="button" class="opt' + (l[0] === cur ? ' on' : '') + '" data-v="' + l[0] + '"><span class="oe">🎙️</span>' + l[1] + '</button>';
+    });
+    openSheet(html + '</div><p class="muted">The words you say are typed in this language. Dates, times and “urgent” are understood in English only.</p>', function (s) {
+      s.querySelectorAll('.opt').forEach(function (b) {
+        b.onclick = function () {
+          try { localStorage.setItem(LANG, b.dataset.v); } catch (e) {}
+          closeSheet(); say('Voice language set 🎙️');
+        };
+      });
+    });
+  }
   function menuSheet() {
     var dark = document.documentElement.dataset.theme === 'dark';
     var items = [
@@ -691,6 +825,7 @@
       ['clear', '🧹', 'Clear done tasks', ''],
       ['alarm', alarmOn ? '🔔' : '🔕', 'In-app alarm', alarmOn ? 'On' : 'Off'],
       ['testsound', '🔊', 'Test alarm sound', 'Plays a chime'],
+      ['lang', '🎙️', 'Voice language', (LANGS.filter(function (l) { return l[0] === (function () { try { return localStorage.getItem(LANG) || ''; } catch (e) { return ''; } })(); })[0] || LANGS[0])[1]],
       ['theme', dark ? '☀️' : '🌙', dark ? 'Light theme' : 'Dark theme', ''],
       ['export', '📦', 'Export tasks', 'Save a .json backup'],
       ['import', '📥', 'Import tasks', 'From a backup or the PC app']
@@ -724,7 +859,8 @@
             }
             else if (a === 'theme') setTheme(dark ? 'light' : 'dark');
             else if (a === 'export') exportTasks();
-          }, 120);
+            else if (a === 'lang') langSheet();
+          }, 350);
         };
       });
     });
@@ -975,7 +1111,9 @@
       (t.Notes ? '<div class="alarm-notes">' + esc(t.Notes.split('\n')[0]) + '</div>' : '') +
       '<div class="alarm-cat" style="--tc:' + c.color + '">' + c.emoji + ' ' + c.name + '</div>' +
       '<div class="alarm-actions"><button type="button" class="btn primary" data-a="done">✅ Done</button>' +
-      '<button type="button" class="btn soft" data-a="snooze">💤 Snooze 10 min</button>' +
+      '<div class="alarm-snooze"><button type="button" class="btn soft" data-a="s10">💤 10 min</button>' +
+      '<button type="button" class="btn soft" data-a="s60">💤 1 hour</button>' +
+      '<button type="button" class="btn soft" data-a="tom">🌅 Tomorrow</button></div>' +
       '<button type="button" class="btn ghost" data-a="dismiss">Dismiss</button></div></div>';
     box.hidden = false;
     requestAnimationFrame(function () { box.classList.add('show'); });
@@ -986,7 +1124,16 @@
       b.onclick = function () {
         var a = b.dataset.a;
         if (a === 'done') { var x = find(t.Id); if (x) { x.Done = true; save(); } say('Nice, done! ✅'); }
-        else if (a === 'snooze') { snoozed[t.Id] = Date.now() + 10 * 60000; say('Snoozed for 10 minutes 💤'); }
+        else if (a === 's10' || a === 's60') {
+          var mins = a === 's10' ? 10 : 60;
+          snoozed[t.Id] = Date.now() + mins * 60000;
+          say('Snoozed for ' + (mins === 10 ? '10 minutes' : '1 hour') + ' 💤');
+        }
+        else if (a === 'tom') {
+          var y = find(t.Id);
+          if (y) { y.Date = key(addDays(today(), 1)); save(); }
+          say('Moved to tomorrow at ' + timeDisp(t.Time) + ' 🌅');
+        }
         hideAlarm();
         render();
       };
@@ -1089,7 +1236,53 @@
     }, { passive: true });
   })();
 
+  // Swipe a task: right = done, left = move to the next day.
+  var lastSwipe = 0;
+  function moveOneDay(id) {
+    var t = find(id); if (!t) return;
+    var to = addDays(parseKey(t.Date), 1);
+    withUndo('Moved to ' + friendly(to) + ' ➡️', function () { t.Date = key(to); });
+  }
+  (function () {
+    var list = $('list'), card = null, sx = 0, sy = 0, dx = 0, dir = null, LIMIT = 90;
+    function reset(c) {
+      c.style.transition = 'transform .2s ease'; c.style.transform = '';
+      delete c.dataset.swipe;
+      setTimeout(function () { c.style.transition = ''; }, 220);
+    }
+    list.addEventListener('touchstart', function (e) {
+      card = e.touches.length === 1 ? e.target.closest('.task') : null;
+      if (!card) return;
+      sx = e.touches[0].clientX; sy = e.touches[0].clientY; dx = 0; dir = null;
+    }, { passive: true });
+    list.addEventListener('touchmove', function (e) {
+      if (!card) return;
+      var ddx = e.touches[0].clientX - sx, ddy = e.touches[0].clientY - sy;
+      if (dir === null) {
+        if (Math.abs(ddx) < 10 && Math.abs(ddy) < 10) return;
+        dir = Math.abs(ddx) > Math.abs(ddy) * 1.4 ? 'h' : 'v';
+      }
+      if (dir !== 'h') { card = null; return; }
+      dx = Math.max(-150, Math.min(150, ddx));
+      card.style.transition = 'none';
+      card.style.transform = 'translateX(' + dx + 'px)';
+      card.dataset.swipe = Math.abs(dx) < LIMIT ? 'hint' : (dx > 0 ? 'done' : 'move');
+    }, { passive: true });
+    function end() {
+      var c = card; card = null;
+      if (!c || dir !== 'h') return;
+      lastSwipe = Date.now();
+      var id = c.dataset.id;
+      if (Math.abs(dx) < LIMIT) { reset(c); return; }
+      if (dx > 0) { reset(c); toggle(id, c); }
+      else { c.style.transition = 'transform .2s ease, opacity .2s'; c.style.transform = 'translateX(-110%)'; c.style.opacity = '0'; setTimeout(function () { moveOneDay(id); }, 180); }
+    }
+    list.addEventListener('touchend', end, { passive: true });
+    list.addEventListener('touchcancel', function () { if (card) { reset(card); card = null; } }, { passive: true });
+  })();
+
   $('list').addEventListener('click', function (e) {
+    if (Date.now() - lastSwipe < 400) return;
     var card = e.target.closest('.task'); if (!card) return;
     if (e.target.closest('.check')) toggle(card.dataset.id, card);
     else editSheet(card.dataset.id);
