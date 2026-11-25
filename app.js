@@ -296,6 +296,112 @@
     return 'Added' + when + (time ? ' at ' + timeDisp(time) : '') + ' 👍';
   }
 
+  // ---------- Voice ----------
+  var SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+  var rec = null, listening = false;
+  var WDN = ['sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday'];
+  function speak(text) {
+    try {
+      if (!('speechSynthesis' in window)) return;
+      speechSynthesis.cancel();
+      var u = new SpeechSynthesisUtterance(text);
+      u.lang = navigator.language || 'en-US';
+      speechSynthesis.speak(u);
+    } catch (e) {}
+  }
+  // "Gym at 6 pm tomorrow" -> { title: "Gym", date: <Date or null>, time: "18:00" or "" }
+  function parseSpoken(text) {
+    var s = ' ' + text.replace(/\s+/g, ' ').trim() + ' ', d = null, time = '', m;
+    if ((m = /\s(today|tonight|tomorrow)\s/i.exec(s))) {
+      d = addDays(today(), /tomorrow/i.test(m[1]) ? 1 : 0);
+      s = s.replace(m[0], ' ');
+    } else if ((m = /\s(?:on\s+)?(sunday|monday|tuesday|wednesday|thursday|friday|saturday)\s/i.exec(s))) {
+      var ahead = (WDN.indexOf(m[1].toLowerCase()) - today().getDay() + 7) % 7 || 7;
+      d = addDays(today(), ahead);
+      s = s.replace(m[0], ' ');
+    }
+    if ((m = /\s(?:at\s+)?noon\s/i.exec(s))) {
+      time = '12:00'; s = s.replace(m[0], ' ');
+    } else if ((m = /\s(?:at\s+)?(\d{1,2})(?:[:.](\d{2}))?\s*(a\.?m\.?|p\.?m\.?)(?![a-z])/i.exec(s))) {
+      var h = +m[1], mi = m[2] ? +m[2] : 0;
+      if (h >= 1 && h <= 12 && mi <= 59) {
+        var pm = /^p/i.test(m[3]);
+        if (pm && h < 12) h += 12;
+        if (!pm && h === 12) h = 0;
+        time = pad(h) + ':' + pad(mi); s = s.replace(m[0], ' ');
+      }
+    } else if ((m = /\sat\s+(\d{1,2})(?::(\d{2}))?(?=\s|$)/i.exec(s))) {
+      var h2 = +m[1], mi2 = m[2] ? +m[2] : 0;
+      if (h2 <= 23 && mi2 <= 59) {
+        if (h2 >= 1 && h2 <= 6) h2 += 12; // "at 6" usually means the evening
+        time = pad(h2) + ':' + pad(mi2); s = s.replace(m[0], ' ');
+      }
+    }
+    var title = s.replace(/\s+/g, ' ').trim()
+      .replace(/\s+(at|on|by|for)$/i, '')
+      .replace(/^(remind me to|reminder to|remember to|i need to)\s+/i, '').trim();
+    if (!title) title = text.trim();
+    title = title.charAt(0).toUpperCase() + title.slice(1);
+    return { title: title, date: d, time: time };
+  }
+  function spokenDay(d) {
+    var n = diffDays(d, today());
+    if (n === 0) return 'today';
+    if (n === 1) return 'tomorrow';
+    return WDL[d.getDay()] + ', ' + MON[d.getMonth()] + ' ' + d.getDate();
+  }
+  function addByVoice(text) {
+    var p = parseSpoken(text), when = p.date || view, time = p.time || newTime;
+    tasks.push(normalize({ Title: p.title, Date: key(when), Time: time, Priority: newPrio, Category: newCat, Created: nowTicks() }));
+    save();
+    if (filter === 'done') filter = 'all';
+    render();
+    sparkle($('micBtn'), 14);
+    var msg = 'Added ' + p.title + (time ? ' at ' + timeDisp(time) : '') + ', ' + spokenDay(when) + '.';
+    say(msg + ' ✅');
+    speak(msg);
+  }
+  function setMic(on) {
+    var b = $('micBtn');
+    b.classList.toggle('listening', on);
+    b.setAttribute('aria-label', on ? 'Stop listening' : 'Add by voice');
+    b.textContent = on ? '⏹' : '🎤';
+  }
+  function voiceAdd() {
+    if (!SR) { say('Voice isn’t supported in this browser. Use the 🎤 on your keyboard instead.'); return; }
+    if (listening) { try { rec.stop(); } catch (e) {} return; }
+    var input = $('newTitle'), prev = input.value, heard = '', full = '';
+    try { rec = new SR(); } catch (e) { say('Voice isn’t available here 🎙️'); return; }
+    rec.lang = navigator.language || 'en-US';
+    rec.interimResults = true;
+    rec.continuous = false;
+    rec.maxAlternatives = 1;
+    rec.onstart = function () { say('Listening… say it like “Gym at 6pm tomorrow” 🎙️'); };
+    rec.onresult = function (e) {
+      var interim = '';
+      for (var i = e.resultIndex; i < e.results.length; i++) {
+        if (e.results[i].isFinal) heard += e.results[i][0].transcript + ' ';
+        else interim += e.results[i][0].transcript;
+      }
+      full = (heard + interim).trim();
+      input.value = full;
+    };
+    rec.onerror = function (e) {
+      if (e.error === 'aborted') return;
+      say(e.error === 'not-allowed' || e.error === 'service-not-allowed' ? 'Microphone is blocked. Allow it for Daily Joy in Settings.'
+        : e.error === 'no-speech' ? 'Didn’t hear anything. Tap 🎤 and try again.'
+        : 'Voice didn’t work this time. Try again 🎙️');
+    };
+    rec.onend = function () {
+      listening = false; setMic(false);
+      if (full) { input.value = ''; addByVoice(full); }
+      else input.value = prev;
+    };
+    listening = true; setMic(true);
+    try { rec.start(); }
+    catch (e) { listening = false; setMic(false); input.value = prev; say('Voice didn’t start. Try again 🎙️'); }
+  }
+
   function toggle(id, el) {
     var t = find(id); if (!t) return;
     t.Done = !t.Done; save();
@@ -796,6 +902,7 @@
 
   // ---------- Wiring ----------
   $('addForm').addEventListener('submit', addTask);
+  $('micBtn').onclick = voiceAdd;
   $('catChip').onclick = function () { catSheet(newCat, function (v) { newCat = v; renderAddChips(); }); };
   $('prioChip').onclick = function () { prioSheet(newPrio, function (v) { newPrio = v; renderAddChips(); }); };
   $('newTime').addEventListener('change', function () { newTime = this.value || ''; renderAddChips(); });
