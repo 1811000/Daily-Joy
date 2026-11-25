@@ -1,6 +1,6 @@
 // Daily Joy service worker: caches the app so it opens with no internet.
 // Bump VERSION whenever you change a file so phones pick up the new copy.
-var VERSION = 'dailyjoy-v2';
+var VERSION = 'dailyjoy-v4';
 var FILES = ['./', 'index.html', 'styles.css', 'app.js', 'manifest.webmanifest',
              'icons/icon-192.png', 'icons/icon-512.png', 'icons/apple-touch-icon.png'];
 

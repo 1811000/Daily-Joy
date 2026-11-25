@@ -461,6 +461,7 @@
       ['move', '➡️', 'Move unfinished to tomorrow', ''],
       ['clear', '🧹', 'Clear done tasks', ''],
       ['alarm', alarmOn ? '🔔' : '🔕', 'In-app alarm', alarmOn ? 'On' : 'Off'],
+      ['testsound', '🔊', 'Test alarm sound', 'Plays a chime'],
       ['theme', dark ? '☀️' : '🌙', dark ? 'Light theme' : 'Dark theme', ''],
       ['export', '📦', 'Export tasks', 'Save a .json backup'],
       ['import', '📥', 'Import tasks', 'From a backup or the PC app']
@@ -475,6 +476,11 @@
         b.onclick = function () {
           var a = b.dataset.a;
           if (a === 'import') { $('importFile').click(); closeSheet(); return; } // click must happen inside the tap
+          if (a === 'testsound') {
+            unlockAudio.skipDance = true; unlockAudio(); unlockAudio.skipDance = false;
+            // we're inside a tap, so play for real right away; that also unlocks the element
+            if (chimeEl) { chimeEl.muted = false; chimeReady = true; chimeEl.currentTime = 0; var pp = chimeEl.play(); if (pp && pp.catch) pp.catch(webChime); } else webChime();
+            say('If you heard nothing, turn the volume up 🔊'); closeSheet(); return; }
           closeSheet();
           setTimeout(function () {
             if (a === 'today') setView(today());
@@ -579,6 +585,12 @@
     var name = (t.Title.replace(/[^\w\- ]+/g, '').trim().replace(/\s+/g, '-').slice(0, 30) || 'reminder') + '.ics';
     var file = null;
     try { file = new File([ics], name, { type: 'text/calendar' }); } catch (e) {}
+    // iPhone: open the calendar data in Safari, which offers a one-tap "Add to Calendar" screen.
+    if (/iphone|ipad|ipod/i.test(navigator.userAgent)) {
+      var w = null;
+      try { w = window.open('data:text/calendar;charset=utf-8,' + encodeURIComponent(ics), '_blank'); } catch (e) {}
+      if (w) return;
+    }
     if (file && navigator.canShare && navigator.canShare({ files: [file] }) && /iphone|ipad|ipod|android/i.test(navigator.userAgent)) {
       navigator.share({ files: [file], title: t.Title }).catch(function () {});
       return;
@@ -601,18 +613,61 @@
     Object.keys(fired).forEach(function (k) { if (fired[k] < cutoff) delete fired[k]; });
     try { localStorage.setItem(FIRED, JSON.stringify(fired)); } catch (e) {}
   }
+  // The chime is a small generated WAV played through a normal <audio> element. On iPhone that plays
+  // through the media channel (works with the silent switch on), unlike Web Audio, which gets muted.
+  var chimeEl = null, chimeReady = false;
+  function makeChimeUrl() {
+    var rate = 22050, secs = 1.5, n = Math.floor(rate * secs), notes = [880, 1108.7, 1318.5, 1760];
+    var buf = new ArrayBuffer(44 + n * 2), v = new DataView(buf);
+    function str(o, s) { for (var i = 0; i < s.length; i++) v.setUint8(o + i, s.charCodeAt(i)); }
+    str(0, 'RIFF'); v.setUint32(4, 36 + n * 2, true); str(8, 'WAVE'); str(12, 'fmt ');
+    v.setUint32(16, 16, true); v.setUint16(20, 1, true); v.setUint16(22, 1, true);
+    v.setUint32(24, rate, true); v.setUint32(28, rate * 2, true); v.setUint16(32, 2, true); v.setUint16(34, 16, true);
+    str(36, 'data'); v.setUint32(40, n * 2, true);
+    for (var i = 0; i < n; i++) {
+      var t = i / rate, s = 0;
+      notes.forEach(function (f, k) {
+        var lt = t - k * 0.16;
+        if (lt < 0) return;
+        var env = Math.min(1, lt / 0.015) * Math.exp(-lt * 5);
+        s += Math.sin(2 * Math.PI * f * lt) * env;
+      });
+      v.setInt16(44 + i * 2, Math.max(-1, Math.min(1, s * 0.45)) * 32767, true);
+    }
+    return URL.createObjectURL(new Blob([buf], { type: 'audio/wav' }));
+  }
   // iOS only lets a page make sound after a tap, so unlock audio on the first touch.
   function unlockAudio() {
+    try { if (navigator.audioSession) navigator.audioSession.type = 'playback'; } catch (e) {}
+    try {
+      if (!chimeEl) { chimeEl = new Audio(makeChimeUrl()); chimeEl.preload = 'auto'; }
+      if (!chimeReady && !unlockAudio.skipDance) {
+        chimeEl.muted = true;
+        var pr = chimeEl.play();
+        var done = function () {
+          chimeReady = true;
+          if (chimeEl.muted) { chimeEl.pause(); chimeEl.currentTime = 0; chimeEl.muted = false; } // skip if a real chime already took over
+        };
+        if (pr && pr.then) pr.then(done, function () {}); else done();
+      }
+    } catch (e) {}
     try {
       var AC = window.AudioContext || window.webkitAudioContext;
-      if (!AC) return;
-      if (!audio) audio = new AC();
-      if (audio.state === 'suspended') audio.resume();
+      if (AC) {
+        if (!audio) audio = new AC();
+        if (audio.state !== 'running') audio.resume();
+      }
     } catch (e) {}
   }
   ['pointerdown', 'touchend', 'click', 'keydown'].forEach(function (ev) { document.addEventListener(ev, unlockAudio, { passive: true }); });
 
   function chime() {
+    if (chimeEl && chimeReady) {
+      try { chimeEl.muted = false; chimeEl.currentTime = 0; var p = chimeEl.play(); if (p && p.catch) p.catch(webChime); return; } catch (e) {}
+    }
+    webChime();
+  }
+  function webChime() {
     if (!audio || audio.state !== 'running') return;
     var notes = [880, 1108.7, 1318.5, 1760], t0 = audio.currentTime + 0.02;
     notes.forEach(function (f, i) {
