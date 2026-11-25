@@ -101,8 +101,21 @@
   }
 
   // ---------- Storage ----------
+  // Repeating tasks: every repeat is a normal task (so it can be ticked off on its own day) that carries a
+  // Series id. The recipe for the series lives in `series`, and fillRepeats() keeps the coming weeks filled in.
+  var SERIES = 'dailyjoy.series';
+  var REPEAT = {
+    daily:    { name: 'Daily',    say: 'every day',     sub: 'Every single day', ahead: 30 },
+    weekdays: { name: 'Weekdays', say: 'every weekday', sub: 'Monday to Friday', ahead: 30 },
+    weekly:   { name: 'Weekly',   say: 'every week',    sub: 'Same day each week', ahead: 60 },
+    monthly:  { name: 'Monthly',  say: 'every month',   sub: 'Same date each month', ahead: 100 }
+  };
+  var REPEAT_KEYS = ['daily', 'weekdays', 'weekly', 'monthly'];
   function normalize(t) {
+    var sid = t.Series ? String(t.Series) : '';
     return {
+      Series: sid,
+      Repeat: sid && REPEAT[t.Repeat] ? t.Repeat : '',
       Id: t.Id || newId(),
       Title: String(t.Title || '').trim() || 'Untitled',
       Notes: t.Notes || '',
@@ -118,17 +131,75 @@
     try { var a = JSON.parse(localStorage.getItem(STORE) || '[]'); return Array.isArray(a) ? a.map(normalize) : []; }
     catch (e) { return []; }
   }
+  function loadSeries() {
+    try { var o = JSON.parse(localStorage.getItem(SERIES) || '{}'); return o && typeof o === 'object' && !Array.isArray(o) ? o : {}; }
+    catch (e) { return {}; }
+  }
   function save() {
-    try { localStorage.setItem(STORE, JSON.stringify(tasks)); }
+    try { localStorage.setItem(STORE, JSON.stringify(tasks)); localStorage.setItem(SERIES, JSON.stringify(series)); }
     catch (e) { say('Could not save on this device 😢'); }
   }
   function snapshot() { return JSON.parse(JSON.stringify(tasks)); }
 
   // ---------- State ----------
   var tasks = load();
+  var series = loadSeries();
   var view = today();
   var filter = 'all', catFilter = null;
-  var newCat = 'general', newPrio = 1, newTime = '';
+  var newCat = 'general', newPrio = 1, newTime = '', newRepeat = '';
+
+  // ---------- Repeats ----------
+  function nextOccurrence(rule, from, anchor) {
+    var d = new Date(from);
+    if (rule === 'daily') return addDays(d, 1);
+    if (rule === 'weekdays') { do { d = addDays(d, 1); } while (d.getDay() === 0 || d.getDay() === 6); return d; }
+    if (rule === 'weekly') return addDays(d, 7);
+    var y = d.getFullYear(), m = d.getMonth() + 1, dim = new Date(y, m + 1, 0).getDate();
+    return new Date(y, m, Math.min(anchor.getDate(), dim)); // monthly keeps the original date (31st -> 30th/28th when needed)
+  }
+  function nextWeekday(from, wd) { return addDays(from, (wd - from.getDay() + 7) % 7); }
+  // Makes sure every series has its upcoming tasks created. Missed days in the past are not recreated.
+  function fillRepeats() {
+    var tk = key(today()), changed = false;
+    Object.keys(series).forEach(function (id) {
+      var s = series[id];
+      if (!s || !REPEAT[s.Rule] || !/^\d{4}-\d{2}-\d{2}$/.test(s.Through || '')) return;
+      var horizon = key(addDays(today(), REPEAT[s.Rule].ahead));
+      var anchor = parseKey(s.Anchor || s.Through), d = parseKey(s.Through), guard = 0;
+      while (guard++ < 800) {
+        d = nextOccurrence(s.Rule, d, anchor);
+        var k = key(d);
+        if (k > horizon) break;
+        s.Through = k; changed = true;
+        if (k < tk) continue;
+        if (!tasks.some(function (x) { return x.Series === id && x.Date === k; })) {
+          tasks.push(normalize({ Title: s.Title, Notes: s.Notes, Date: k, Time: s.Time, Priority: s.Priority, Category: s.Category,
+                                 Series: id, Repeat: s.Rule, Created: nowTicks() }));
+        }
+      }
+    });
+    if (changed) save();
+  }
+  // Starts a repeat from a task: the task is the first one, the rest get created by fillRepeats().
+  function startSeries(t, rule) {
+    var id = newId();
+    t.Series = id; t.Repeat = rule;
+    series[id] = { Rule: rule, Title: t.Title, Notes: t.Notes, Time: t.Time, Priority: t.Priority, Category: t.Category, Anchor: t.Date, Through: t.Date };
+  }
+  // "Gym every Monday at 6pm" -> { rest: "Gym at 6pm", rule: "weekly", weekday: 1 }
+  var EVERY_RX = /(?:^|\s)every\s+(day|weekdays?|week|month|(?:sun|mon|tues|wednes|thurs|fri|satur)day)(?=\s|$|[.,!?])/i;
+  var REPEAT_END_RX = /\s+(daily|weekly|monthly|weekdays)\s*[.!]?$/i;
+  function extractRepeat(text) {
+    var m = EVERY_RX.exec(text), word, rest;
+    if (m) { word = m[1].toLowerCase(); rest = (text.slice(0, m.index) + ' ' + text.slice(m.index + m[0].length)).replace(/\s+/g, ' ').trim(); }
+    else if ((m = REPEAT_END_RX.exec(text))) { word = m[1].toLowerCase(); rest = text.slice(0, m.index).trim(); }
+    else return null;
+    if (!rest) return null;
+    var wd = ['sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday'].indexOf(word);
+    if (wd >= 0) return { rest: rest, rule: 'weekly', weekday: wd };
+    var rule = /^day|^daily/.test(word) ? 'daily' : /^weekday/.test(word) ? 'weekdays' : /^week/.test(word) ? 'weekly' : 'monthly';
+    return { rest: rest, rule: rule, weekday: null };
+  }
 
   // ---------- Rendering ----------
   var RING_C = 2 * Math.PI * 35;
@@ -228,6 +299,7 @@
     var isLate = !t.Done && t.Time && t.Date === key(today()) && t.Time < pad(new Date().getHours()) + ':' + pad(new Date().getMinutes());
     if (t.Time) meta += '<span class="tag" style="--tc:' + (isLate ? '#ef4444' : '#7a6e8e') + '">' + (isLate ? '⏰ ' : '🕒 ') + timeDisp(t.Time) + '</span>';
     if (t.Priority !== 1) meta += '<span class="tag" style="--tc:' + p.color + '">' + p.emoji + ' ' + p.name + '</span>';
+    if (t.Repeat) meta += '<span class="tag" style="--tc:#7a6e8e">🔁 ' + REPEAT[t.Repeat].name + '</span>';
     meta += '<span class="tag" style="--tc:' + c.color + '">' + c.name + '</span>';
     return '<article class="task' + (t.Done ? ' done' : '') + '" data-id="' + t.Id + '" style="--cc:' + c.color + '">' +
       '<button type="button" class="check" aria-label="' + (t.Done ? 'Mark not done' : 'Mark done') + '"></button>' +
@@ -269,6 +341,8 @@
     var c = cat(newCat), p = prio(newPrio);
     $('catChip').innerHTML = '<span class="sw" style="background:' + c.color + '"></span>' + c.emoji + ' ' + c.name;
     $('prioChip').innerHTML = p.emoji + ' ' + p.name;
+    $('repChip').textContent = '🔁 ' + (newRepeat ? REPEAT[newRepeat].name : 'Repeat');
+    $('repChip').classList.toggle('on', !!newRepeat);
     $('timeLabel').textContent = newTime ? '🕒 ' + timeDisp(newTime) : '🕒 Add time';
     $('newTime').value = newTime;
     $('timeClear').hidden = !newTime;
@@ -279,21 +353,31 @@
     e.preventDefault();
     var input = $('newTitle'), text = input.value.trim();
     if (!text) { input.focus(); return; }
-    var time = newTime, parsed = extractTime(text);
+    var time = newTime, rule = newRepeat, date = view, rp = extractRepeat(text);
+    if (rp) { text = rp.rest; rule = rp.rule; if (rp.weekday !== null) date = nextWeekday(today(), rp.weekday); }
+    var parsed = extractTime(text);
     if (parsed) { text = parsed.rest; if (!time) time = parsed.time; }
-    tasks.push(normalize({ Title: text, Date: key(view), Time: time, Priority: newPrio, Category: newCat, Created: nowTicks() }));
-    save();
+    createTask(text, date, time, rule);
     input.value = '';
-    newTime = '';
+    newTime = ''; newRepeat = '';
     if (filter === 'done') filter = 'all';
     if (catFilter && catFilter !== newCat) catFilter = null;
     render();
     sparkle(document.querySelector('.add-btn'), 10);
-    say(friendlyAdd(text, time));
+    say(friendlyAdd(text, time, date, rule));
   }
-  function friendlyAdd(text, time) {
-    var when = diffDays(view, today()) === 0 ? '' : ' for ' + friendly(view);
-    return 'Added' + when + (time ? ' at ' + timeDisp(time) : '') + ' 👍';
+  // Adds a task (and, when a repeat is chosen, starts its series and creates the coming ones).
+  function createTask(title, date, time, rule) {
+    var t = normalize({ Title: title, Date: key(date), Time: time, Priority: newPrio, Category: newCat, Created: nowTicks() });
+    if (rule && REPEAT[rule]) startSeries(t, rule);
+    tasks.push(t);
+    if (t.Series) fillRepeats();
+    save();
+    return t;
+  }
+  function friendlyAdd(text, time, date, rule) {
+    var when = diffDays(date, today()) === 0 ? '' : ' for ' + friendly(date);
+    return 'Added' + when + (time ? ' at ' + timeDisp(time) : '') + (rule ? ' 🔁 ' + REPEAT[rule].say : '') + ' 👍';
   }
 
   // ---------- Voice ----------
@@ -351,13 +435,16 @@
     return WDL[d.getDay()] + ', ' + MON[d.getMonth()] + ' ' + d.getDate();
   }
   function addByVoice(text) {
+    var rp = extractRepeat(text), rule = newRepeat, wd = null;
+    if (rp) { text = rp.rest; rule = rp.rule; wd = rp.weekday; }
     var p = parseSpoken(text), when = p.date || view, time = p.time || newTime;
-    tasks.push(normalize({ Title: p.title, Date: key(when), Time: time, Priority: newPrio, Category: newCat, Created: nowTicks() }));
-    save();
+    if (wd !== null) when = nextWeekday(today(), wd);
+    createTask(p.title, when, time, rule);
+    newRepeat = '';
     if (filter === 'done') filter = 'all';
     render();
     sparkle($('micBtn'), 14);
-    var msg = 'Added ' + p.title + (time ? ' at ' + timeDisp(time) : '') + ', ' + spokenDay(when) + '.';
+    var msg = 'Added ' + p.title + (time ? ' at ' + timeDisp(time) : '') + (rule ? ', ' + REPEAT[rule].say : ', ' + spokenDay(when)) + '.';
     say(msg + ' ✅');
     speak(msg);
   }
@@ -431,17 +518,33 @@
 
   // Applies a change and returns a function that reverts it. Shows an Undo toast when given a message.
   function withUndo(message, change) {
-    var before = snapshot();
+    var before = snapshot(), seriesBefore = JSON.parse(JSON.stringify(series));
     change();
     save(); render();
-    var undo = function () { tasks = before.map(normalize); save(); render(); say('Undone ↩️'); };
+    var undo = function () { tasks = before.map(normalize); series = seriesBefore; save(); render(); say('Undone ↩️'); };
     if (message) say(message, undo);
     return undo;
   }
 
-  function deleteTask(id) {
+  function deleteTask(id, wholeSeries) {
     var t = find(id); if (!t) return;
+    if (wholeSeries && t.Series) {
+      var sid = t.Series, from = t.Date;
+      withUndo('Stopped repeating “' + truncate(t.Title, 22) + '”', function () {
+        tasks = tasks.filter(function (x) { return x.Series !== sid || x.Date < from; });
+        delete series[sid];
+      });
+      return;
+    }
     withUndo('Deleted “' + truncate(t.Title, 22) + '”', function () { tasks = tasks.filter(function (x) { return x.Id !== id; }); });
+  }
+  function deleteRepeatSheet(id) {
+    var html = '<h2>Delete a repeating task</h2><div class="opts">' +
+      '<button type="button" class="opt" data-v="one"><span class="oe">🗑️</span>Just this one<span class="os">Keeps the repeat going</span></button>' +
+      '<button type="button" class="opt" data-v="all"><span class="oe">🛑</span>This and all future<span class="os">Stops the repeat</span></button></div>';
+    openSheet(html, function (s) {
+      s.querySelectorAll('.opt').forEach(function (b) { b.onclick = function () { closeSheet(); deleteTask(id, b.dataset.v === 'all'); }; });
+    });
   }
   function truncate(s, n) { return s.length > n ? s.slice(0, n - 1) + '…' : s; }
 
@@ -569,6 +672,17 @@
     });
   }
 
+  function repeatSheet(current, onPick) {
+    var html = '<h2>Repeat</h2><div class="opts"><button type="button" class="opt' + (!current ? ' on' : '') + '" data-v=""><span class="oe">1️⃣</span>Never<span class="os">Just once</span></button>';
+    var emo = { daily: '📆', weekdays: '💼', weekly: '🗓️', monthly: '🌙' };
+    REPEAT_KEYS.forEach(function (k) {
+      html += '<button type="button" class="opt' + (k === current ? ' on' : '') + '" data-v="' + k + '"><span class="oe">' + emo[k] + '</span>' + REPEAT[k].name + '<span class="os">' + REPEAT[k].sub + '</span></button>';
+    });
+    openSheet(html + '</div><p class="muted">Tip: you can also just type or say “Gym every Monday at 6pm”.</p>', function (s) {
+      s.querySelectorAll('.opt').forEach(function (b) { b.onclick = function () { onPick(b.dataset.v); closeSheet(); }; });
+    });
+  }
+
   function menuSheet() {
     var dark = document.documentElement.dataset.theme === 'dark';
     var items = [
@@ -616,9 +730,33 @@
     });
   }
 
+  // After an edit: keep the series recipe and the not-yet-done future ones in step with this task.
+  function applyRepeatEdit(t, rule) {
+    var sid = t.Series, s = sid && series[sid];
+    function dropFuture() { tasks = tasks.filter(function (x) { return x === t || x.Series !== sid || x.Done || x.Date <= t.Date; }); }
+    if (sid && !rule) {                       // repeat turned off: this stays as a one-off
+      dropFuture(); delete series[sid]; t.Series = ''; t.Repeat = ''; return;
+    }
+    if (!sid && rule) { startSeries(t, rule); fillRepeats(); return; }   // new repeat
+    if (!sid) return;
+    if (!s) s = series[sid] = { Rule: rule, Anchor: t.Date, Through: t.Date };
+    var ruleChanged = rule !== s.Rule;
+    s.Title = t.Title; s.Notes = t.Notes; s.Time = t.Time; s.Priority = t.Priority; s.Category = t.Category;
+    if (ruleChanged) {                        // new pattern: rebuild everything after this one
+      dropFuture(); s.Rule = rule; s.Anchor = t.Date; s.Through = t.Date; t.Repeat = rule;
+    } else {                                  // same pattern: refresh the future ones
+      tasks.forEach(function (x) {
+        if (x !== t && x.Series === sid && !x.Done && x.Date > t.Date) {
+          x.Title = t.Title; x.Notes = t.Notes; x.Time = t.Time; x.Priority = t.Priority; x.Category = t.Category;
+        }
+      });
+    }
+    fillRepeats();
+  }
+
   function editSheet(id) {
     var t = find(id); if (!t) return;
-    var d = { Date: t.Date, Time: t.Time, Priority: t.Priority, Category: t.Category };
+    var d = { Date: t.Date, Time: t.Time, Priority: t.Priority, Category: t.Category, Repeat: t.Repeat };
     var tk = key(today()), tmk = key(addDays(today(), 1));
     var html = '<h2>Edit task</h2>' +
       '<input class="field" id="eTitle" maxlength="200" value="' + esc(t.Title) + '" aria-label="Title">' +
@@ -633,6 +771,10 @@
       '<div class="row" style="margin-top:6px"><span class="muted" id="eTimeTxt"></span>' +
         '<button type="button" class="btn ghost small" id="eNoTime" style="flex:0 0 auto">No time</button></div>' +
       '<button type="button" class="btn soft cal-btn" id="eCal">📅 Add alert to iPhone Calendar</button>' +
+      '<h3>🔁 Repeat</h3><div class="seg wrap" id="eRep">' +
+        '<button type="button" data-v="">Never</button>' +
+        REPEAT_KEYS.map(function (k) { return '<button type="button" data-v="' + k + '">' + REPEAT[k].name + '</button>'; }).join('') + '</div>' +
+      (t.Series ? '<p class="muted" id="eRepNote">Changes to the title, time, priority or category also apply to the next ones. Moving the date only moves this one.</p>' : '') +
       '<h3>Priority</h3><div class="seg" id="ePrio">' +
         PRIOS.map(function (p, i) { return '<button type="button" data-v="' + i + '" style="--sc:' + p.color + '">' + p.emoji + ' ' + p.name + '</button>'; }).join('') + '</div>' +
       '<h3>Category</h3><div class="seg" id="eCat">' +
@@ -646,6 +788,7 @@
         s.querySelectorAll('#eWhen button').forEach(function (b) { b.classList.toggle('on', b.dataset.v === d.Date); });
         s.querySelectorAll('#ePrio button').forEach(function (b) { b.classList.toggle('on', +b.dataset.v === d.Priority); });
         s.querySelectorAll('#eCat button').forEach(function (b) { b.classList.toggle('on', b.dataset.v === d.Category); });
+        s.querySelectorAll('#eRep button').forEach(function (b) { b.classList.toggle('on', b.dataset.v === d.Repeat); });
         $('eDate').value = d.Date; $('eTime').value = d.Time;
         $('eTimeTxt').textContent = d.Time ? '🕒 ' + timeDisp(d.Time) + ' · ' + friendly(parseKey(d.Date)) : 'No time set · ' + friendly(parseKey(d.Date));
         $('eNoTime').hidden = !d.Time;
@@ -654,6 +797,7 @@
       s.querySelectorAll('#eWhen button').forEach(function (b) { b.onclick = function () { d.Date = b.dataset.v; sync(); }; });
       s.querySelectorAll('#ePrio button').forEach(function (b) { b.onclick = function () { d.Priority = +b.dataset.v; sync(); }; });
       s.querySelectorAll('#eCat button').forEach(function (b) { b.onclick = function () { d.Category = b.dataset.v; sync(); }; });
+      s.querySelectorAll('#eRep button').forEach(function (b) { b.onclick = function () { d.Repeat = b.dataset.v; sync(); }; });
       $('ePrev').onclick = function () { d.Date = key(addDays(parseKey(d.Date), -1)); sync(); };
       $('eNext').onclick = function () { d.Date = key(addDays(parseKey(d.Date), 1)); sync(); };
       $('eDate').onchange = function () { if (this.value) d.Date = this.value; sync(); };
@@ -664,13 +808,17 @@
         addToCalendar({ Id: t.Id, Title: $('eTitle').value.trim() || t.Title, Notes: $('eNotes').value.trim(), Date: d.Date, Time: d.Time });
       };
       $('eCancel').onclick = closeSheet;
-      $('eDel').onclick = function () { closeSheet(); setTimeout(function () { deleteTask(id); }, 150); };
+      $('eDel').onclick = function () {
+        closeSheet();
+        setTimeout(function () { if (t.Series) deleteRepeatSheet(id); else deleteTask(id); }, t.Series ? 350 : 150);
+      };
       $('eSave').onclick = function () {
         var title = $('eTitle').value.trim();
         if (!title) { $('eTitle').focus(); return; }
         var moved = d.Date !== t.Date;
         t.Title = title; t.Notes = $('eNotes').value.replace(/\s+$/, '');
         t.Date = d.Date; t.Time = d.Time; t.Priority = d.Priority; t.Category = d.Category;
+        applyRepeatEdit(t, d.Repeat);
         save(); closeSheet(); render();
         say(moved ? 'Moved to ' + friendly(parseKey(d.Date)) + ' 📅' : 'Saved ✅');
       };
@@ -918,6 +1066,7 @@
   $('addForm').addEventListener('submit', addTask);
   $('micBtn').onclick = voiceAdd;
   $('catChip').onclick = function () { catSheet(newCat, function (v) { newCat = v; renderAddChips(); }); };
+  $('repChip').onclick = function () { repeatSheet(newRepeat, function (v) { newRepeat = v; renderAddChips(); }); };
   $('prioChip').onclick = function () { prioSheet(newPrio, function (v) { newPrio = v; renderAddChips(); }); };
   $('newTime').addEventListener('change', function () { newTime = this.value || ''; renderAddChips(); });
   $('newTime').addEventListener('input', function () { newTime = this.value || ''; renderAddChips(); });
@@ -959,11 +1108,12 @@
   $('importFile').addEventListener('change', function () { if (this.files[0]) importTasks(this.files[0]); this.value = ''; });
 
   // other tabs / the day rolling over
-  window.addEventListener('storage', function (e) { if (e.key === STORE) { tasks = load(); render(); } });
+  window.addEventListener('storage', function (e) { if (e.key === STORE || e.key === SERIES) { tasks = load(); series = loadSeries(); render(); } });
   var lastDay = key(today());
   function tick() {
     var k = key(today());
     if (k !== lastDay) { if (key(view) === lastDay) view = today(); lastDay = k; }
+    fillRepeats();
     render();
     checkAlarms();
   }
@@ -989,6 +1139,7 @@
   // keep the browser chrome colour in step with the theme on first load
   (function () { var m = document.querySelector('meta[name="theme-color"]'); if (m && document.documentElement.dataset.theme === 'dark') m.setAttribute('content', '#3a2160'); })();
 
+  fillRepeats();
   render();
   checkAlarms();
 })();

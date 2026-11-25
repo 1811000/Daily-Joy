@@ -181,6 +181,7 @@ main { padding: 0 14px; }
   white-space: nowrap; cursor: pointer; transition: transform .12s;
 }
 .chip:active { transform: scale(.94); }
+.chip.on { background: var(--accent); color: #fff; }
 .chip-x { width: 32px; padding: 0; justify-content: center; color: var(--sub); }
 .chip .sw { width: 9px; height: 9px; border-radius: 50%; }
 /* The real <input type=time> sits invisibly on top so iOS shows its wheel picker. */
