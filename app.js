@@ -585,10 +585,11 @@
     var name = (t.Title.replace(/[^\w\- ]+/g, '').trim().replace(/\s+/g, '-').slice(0, 30) || 'reminder') + '.ics';
     var file = null;
     try { file = new File([ics], name, { type: 'text/calendar' }); } catch (e) {}
-    // iPhone: open the calendar data in Safari, which offers a one-tap "Add to Calendar" screen.
-    if (/iphone|ipad|ipod/i.test(navigator.userAgent)) {
+    // iPhone: open a real web address that serves the calendar file (the service worker answers it),
+    // which Safari treats as an event and offers a one-tap "Add to Calendar" screen.
+    if (/iphone|ipad|ipod/i.test(navigator.userAgent) && 'serviceWorker' in navigator && navigator.serviceWorker.controller) {
       var w = null;
-      try { w = window.open('data:text/calendar;charset=utf-8,' + encodeURIComponent(ics), '_blank'); } catch (e) {}
+      try { w = window.open('reminder.ics?d=' + encodeURIComponent(ics), '_blank'); } catch (e) {}
       if (w) return;
     }
     if (file && navigator.canShare && navigator.canShare({ files: [file] }) && /iphone|ipad|ipod|android/i.test(navigator.userAgent)) {

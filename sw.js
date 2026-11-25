@@ -1,6 +1,6 @@
 // Daily Joy service worker: caches the app so it opens with no internet.
 // Bump VERSION whenever you change a file so phones pick up the new copy.
-var VERSION = 'dailyjoy-v4';
+var VERSION = 'dailyjoy-v5';
 var FILES = ['./', 'index.html', 'styles.css', 'app.js', 'manifest.webmanifest',
              'icons/icon-192.png', 'icons/icon-512.png', 'icons/apple-touch-icon.png'];
 
@@ -17,6 +17,16 @@ self.addEventListener('activate', function (e) {
 // Network first (so updates show up), falling back to the cache when offline.
 self.addEventListener('fetch', function (e) {
   if (e.request.method !== 'GET' || new URL(e.request.url).origin !== location.origin) return;
+  // reminder.ics?d=<calendar text>: serve it as a real calendar file so iPhone Safari offers "Add to Calendar".
+  var u = new URL(e.request.url);
+  if (/\/reminder\.ics$/.test(u.pathname) && u.searchParams.get('d')) {
+    e.respondWith(new Response(u.searchParams.get('d'), { headers: {
+      'Content-Type': 'text/calendar; charset=utf-8',
+      'Content-Disposition': 'inline; filename="reminder.ics"',
+      'Cache-Control': 'no-store'
+    } }));
+    return;
+  }
   e.respondWith(
     fetch(e.request).then(function (res) {
       var copy = res.clone();
