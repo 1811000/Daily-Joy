@@ -5,48 +5,51 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Add to Calendar · Daily Joy</title>
 <style>
+  html, body { background: #fff8f0; color: #312642; }
   body { margin: 0; min-height: 100vh; display: flex; align-items: center; justify-content: center; text-align: center;
-         font: 16px/1.4 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; background: #fff8f0; color: #312642; padding: 24px; box-sizing: border-box; }
-  .card { max-width: 340px; }
+         font: 16px/1.4 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; padding: 24px; box-sizing: border-box; }
+  .card { max-width: 340px; width: 100%; }
   .big { font-size: 54px; }
   h1 { font-size: 22px; margin: 10px 0 6px; }
   p { color: #7a6e8e; margin: 0 0 18px; }
   button { font: inherit; font-weight: 800; color: #fff; border: 0; border-radius: 14px; padding: 14px 22px; width: 100%;
            background: linear-gradient(140deg, #ff6384, #ffa743); }
-  @media (prefers-color-scheme: dark) { body { background: #151322; color: #f1edfb; } p { color: #aaa2c6; } }
+  button:disabled { opacity: .5; }
+  @media (prefers-color-scheme: dark) { html, body { background: #151322; color: #f1edfb; } p { color: #aaa2c6; } }
 </style>
 </head>
 <body>
 <div class="card">
   <div class="big">📅</div>
-  <h1 id="h">Opening Calendar…</h1>
-  <p id="p">One moment.</p>
-  <button type="button" id="go" hidden>Add to Calendar</button>
+  <h1>Add to Calendar</h1>
+  <p id="p">Tap the button below to add this reminder.</p>
+  <button type="button" id="go">Add to Calendar</button>
 </div>
 <script>
-/* Daily Joy sends reminders here from the Home Screen app (it opens this page in Safari),
-   because only Safari itself offers the one-tap "Add to Calendar" screen.
-   The event travels in the address: cal.html#d=<calendar text> */
+/* Daily Joy opens this page in Safari (the Home Screen app can't hand a calendar file to Safari itself).
+   The event travels in the address: cal.html#d=<calendar text>. The button is shown straight away,
+   and the calendar file only opens when you tap it. */
 (function () {
+  var p = document.getElementById('p'), go = document.getElementById('go');
   var m = /[#&]d=([^&]*)/.exec(location.hash), ics = '';
   try { ics = m ? decodeURIComponent(m[1]) : ''; } catch (e) {}
-  var h = document.getElementById('h'), p = document.getElementById('p'), go = document.getElementById('go');
-  if (ics.indexOf('BEGIN:VCALENDAR') !== 0) { h.textContent = 'Nothing to add'; p.textContent = 'Go back to Daily Joy and tap the calendar button again.'; return; }
+  if (ics.indexOf('BEGIN:VCALENDAR') !== 0) {
+    p.textContent = 'Nothing to add. Go back to Daily Joy and tap the calendar button again.';
+    go.disabled = true;
+    return;
+  }
 
-  function viaWorker() { location.replace('reminder.ics?d=' + encodeURIComponent(ics)); }
-  function viaBlob() { location.href = URL.createObjectURL(new Blob([ics], { type: 'text/calendar' })); }
-  function open() { if (navigator.serviceWorker && navigator.serviceWorker.controller) viaWorker(); else viaBlob(); }
+  // Helper that serves the file with the right type (installed by Daily Joy on first use).
+  if ('serviceWorker' in navigator) navigator.serviceWorker.register('sw.js').catch(function () {});
 
-  go.onclick = open;
-  function showButton() { h.textContent = 'Add to Calendar'; p.textContent = 'Tap the button, then tap “Add to Calendar”.'; go.hidden = false; }
-
-  if (!('serviceWorker' in navigator)) { showButton(); return; }
-  if (navigator.serviceWorker.controller) { viaWorker(); setTimeout(showButton, 1500); return; }
-  // First visit in Safari: install the helper, then continue as soon as it takes over this page.
-  var done = false;
-  navigator.serviceWorker.addEventListener('controllerchange', function () { if (!done) { done = true; viaWorker(); setTimeout(showButton, 1500); } });
-  navigator.serviceWorker.register('sw.js').catch(function () {});
-  setTimeout(function () { if (!done) { done = true; showButton(); } }, 4000);
+  go.onclick = function () {
+    if (navigator.serviceWorker && navigator.serviceWorker.controller) {
+      location.href = 'reminder.ics?d=' + encodeURIComponent(ics);
+    } else {
+      // Helper not active yet: open the file directly as a calendar attachment.
+      location.href = URL.createObjectURL(new Blob([ics], { type: 'text/calendar' }));
+    }
+  };
 })();
 </script>
 </body>
