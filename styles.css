@@ -255,6 +255,8 @@ main { padding: 0 14px; }
 .task[data-swipe="hint"]::after { content: "↔"; right: 0; left: 0; justify-content: center; color: var(--sub); background: color-mix(in srgb, var(--card) 70%, transparent); }
 .task[data-swipe="done"]::after { content: "✅ Done"; left: 0; right: 0; justify-content: flex-end; background: var(--success); }
 .task[data-swipe="move"]::after { content: "Next day ➡️"; left: 0; right: 0; justify-content: flex-start; background: var(--accent); }
+.task.nope { animation: nope .55s ease; }
+@keyframes nope { 0%, 100% { transform: translateX(0); } 15% { transform: translateX(-12px) rotate(-1deg); } 35% { transform: translateX(10px) rotate(1deg); } 55% { transform: translateX(-7px); } 75% { transform: translateX(4px); } }
 .task.done { opacity: .62; }
 .task.done .t-title { text-decoration: line-through; color: var(--sub); }
 .task.removing { animation: out .25s ease forwards; }

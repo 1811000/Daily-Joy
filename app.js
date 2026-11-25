@@ -1229,6 +1229,44 @@
   })();
 
   // Swipe a task: right = done, left = move to the next day.
+  // Minutes until a timed reminder is due (0 when it has no time or the time has come).
+  function minutesUntil(t) {
+    if (!t.Time) return 0;
+    var d = parseKey(t.Date), p = t.Time.split(':');
+    var due = new Date(d.getFullYear(), d.getMonth(), d.getDate(), +p[0], +p[1]);
+    return Math.max(0, Math.ceil((due - Date.now()) / 60000));
+  }
+  function waitText(mins) {
+    if (mins < 2) return 'a minute';
+    if (mins < 60) return mins + ' minutes';
+    if (mins < 60 * 24) { var h = Math.floor(mins / 60), m = mins % 60; return h + (h === 1 ? ' hour' : ' hours') + (m && h < 6 ? ' ' + m + ' min' : ''); }
+    var dd = Math.round(mins / 1440); return dd + (dd === 1 ? ' day' : ' days');
+  }
+  var NOT_YET = [
+    'Not yet! ⏳ Easy there, champ',
+    'Whoa, time traveller! ⏰ It’s not time yet',
+    'Patience, grasshopper 🦗',
+    'Nice try! 😏 Come back later',
+    'Hold your horses! 🐴',
+    'Too early to celebrate 🎈 You can’t cheat the clock',
+    'The clock says no 🕰️',
+    'Slow down, speedy! 🐢 This one is for later',
+    'Plot twist: it hasn’t happened yet 🎬',
+    'Not so fast! 🚦 Future you has this one'
+  ];
+  var ALREADY_DONE = [
+    'Already done! ✅ Go enjoy the win',
+    'You already crushed this one 💪',
+    'Easy, overachiever! 🏆 This one’s finished',
+    'Déjà vu! 🔁 Already ticked off',
+    'Done and dusted ✨ Nothing left to do here',
+    'Back off, it’s already done! 😄',
+    'Been there, done that 😎',
+    'This one’s in the bag 🎒 Tap the circle if you want it back'
+  ];
+  function notYet(t, mins) {
+    say(pick(NOT_YET) + ' — in ' + waitText(mins) + ' (' + timeDisp(t.Time) + ')');
+  }
   var lastSwipe = 0;
   function moveOneDay(id) {
     var t = find(id); if (!t) return;
@@ -1266,7 +1304,12 @@
       lastSwipe = Date.now();
       var id = c.dataset.id;
       if (Math.abs(dx) < LIMIT) { reset(c); return; }
-      if (dx < 0) { reset(c); toggle(id, c); }
+      if (dx < 0) {
+        var tk = find(id), wait = tk && !tk.Done ? minutesUntil(tk) : 0;
+        if (tk && tk.Done) { reset(c); c.classList.remove('nope'); void c.offsetWidth; c.classList.add('nope'); setTimeout(function () { c.classList.remove('nope'); }, 600); say(pick(ALREADY_DONE)); if (navigator.vibrate) navigator.vibrate(20); }
+        else if (wait > 0) { reset(c); c.classList.remove('nope'); void c.offsetWidth; c.classList.add('nope'); setTimeout(function () { c.classList.remove('nope'); }, 600); notYet(tk, wait); if (navigator.vibrate) navigator.vibrate([20, 40, 20]); }
+        else { reset(c); toggle(id, c); }
+      }
       else { c.style.transition = 'transform .2s ease, opacity .2s'; c.style.transform = 'translateX(110%)'; c.style.opacity = '0'; setTimeout(function () { moveOneDay(id); }, 180); }
     }
     list.addEventListener('touchend', end, { passive: true });
