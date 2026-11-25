@@ -253,8 +253,8 @@ main { padding: 0 14px; }
   font-weight: 800; font-size: 14px; color: #fff; z-index: 2;
 }
 .task[data-swipe="hint"]::after { content: "↔"; right: 0; left: 0; justify-content: center; color: var(--sub); background: color-mix(in srgb, var(--card) 70%, transparent); }
-.task[data-swipe="done"]::after { content: "✅ Done"; left: 0; right: 0; background: var(--success); }
-.task[data-swipe="move"]::after { content: "Next day ➡️"; left: 0; right: 0; justify-content: flex-end; background: var(--accent); }
+.task[data-swipe="done"]::after { content: "✅ Done"; left: 0; right: 0; justify-content: flex-end; background: var(--success); }
+.task[data-swipe="move"]::after { content: "Next day ➡️"; left: 0; right: 0; justify-content: flex-start; background: var(--accent); }
 .task.done { opacity: .62; }
 .task.done .t-title { text-decoration: line-through; color: var(--sub); }
 .task.removing { animation: out .25s ease forwards; }

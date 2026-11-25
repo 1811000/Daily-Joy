@@ -1258,7 +1258,7 @@
       dx = Math.max(-150, Math.min(150, ddx));
       card.style.transition = 'none';
       card.style.transform = 'translateX(' + dx + 'px)';
-      card.dataset.swipe = Math.abs(dx) < LIMIT ? 'hint' : (dx > 0 ? 'done' : 'move');
+      card.dataset.swipe = Math.abs(dx) < LIMIT ? 'hint' : (dx > 0 ? 'move' : 'done');
     }, { passive: true });
     function end() {
       var c = card; card = null;
@@ -1266,8 +1266,8 @@
       lastSwipe = Date.now();
       var id = c.dataset.id;
       if (Math.abs(dx) < LIMIT) { reset(c); return; }
-      if (dx > 0) { reset(c); toggle(id, c); }
-      else { c.style.transition = 'transform .2s ease, opacity .2s'; c.style.transform = 'translateX(-110%)'; c.style.opacity = '0'; setTimeout(function () { moveOneDay(id); }, 180); }
+      if (dx < 0) { reset(c); toggle(id, c); }
+      else { c.style.transition = 'transform .2s ease, opacity .2s'; c.style.transform = 'translateX(110%)'; c.style.opacity = '0'; setTimeout(function () { moveOneDay(id); }, 180); }
     }
     list.addEventListener('touchend', end, { passive: true });
     list.addEventListener('touchcancel', function () { if (card) { reset(card); card = null; } }, { passive: true });
