@@ -585,9 +585,20 @@
     var name = (t.Title.replace(/[^\w\- ]+/g, '').trim().replace(/\s+/g, '-').slice(0, 30) || 'reminder') + '.ics';
     var file = null;
     try { file = new File([ics], name, { type: 'text/calendar' }); } catch (e) {}
-    // iPhone: open a real web address that serves the calendar file (the service worker answers it),
-    // which Safari treats as an event and offers a one-tap "Add to Calendar" screen.
-    if (/iphone|ipad|ipod/i.test(navigator.userAgent) && 'serviceWorker' in navigator && navigator.serviceWorker.controller) {
+    var ios = /iphone|ipad|ipod/i.test(navigator.userAgent);
+    var standalone = navigator.standalone || matchMedia('(display-mode: standalone)').matches;
+    // Home Screen app on iPhone: the file would only open in a basic viewer, so hand off to real Safari
+    // with cal.html (a new window leaves the app, and Safari shows the "Add to Calendar" screen).
+    if (ios && standalone) {
+      var a = document.createElement('a');
+      a.href = 'cal.html#d=' + encodeURIComponent(ics);
+      a.target = '_blank'; a.rel = 'noopener';
+      document.body.appendChild(a); a.click(); a.remove();
+      say('Opening Safari to add it 📅');
+      return;
+    }
+    // iPhone Safari: open a real web address that serves the calendar file (the service worker answers it).
+    if (ios && 'serviceWorker' in navigator && navigator.serviceWorker.controller) {
       var w = null;
       try { w = window.open('reminder.ics?d=' + encodeURIComponent(ics), '_blank'); } catch (e) {}
       if (w) return;
