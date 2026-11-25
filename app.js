@@ -7,6 +7,14 @@
   // ---------- Data & constants ----------
   var STORE = 'dailyjoy.tasks', THEME = 'dailyjoy.theme', HINT = 'dailyjoy.hintClosed';
 
+  // Alerts when the app is closed. Fill these in after deploying push-server (see push-server\README.md).
+  // PUSH_SERVER must also be set to the same address in sw.js.
+  var PUSH_SERVER = 'https://dailyjoy-push.asser1811.workers.dev';
+  var VAPID_PUBLIC = 'BPUNVuOyD3rhnzWltsrevil4lK-XCImho4chO5_s5x09Hoa6nQ912ocNqgDUwv-nq02kIBVKrMMW9muxHi-Z-yI';
+  var PUSHON = 'dailyjoy.push';
+  var pushOn = false; try { pushOn = localStorage.getItem(PUSHON) === '1'; } catch (e) {}
+  var pushTimer = null, pushLast = 0;
+
   var CATS = [
     { key: 'general',  name: 'General',  emoji: '✨', color: '#8b5cf6' },
     { key: 'work',     name: 'Work',     emoji: '💼', color: '#3b82f6' },
@@ -136,7 +144,7 @@
     catch (e) { return {}; }
   }
   function save() {
-    try { localStorage.setItem(STORE, JSON.stringify(tasks)); localStorage.setItem(SERIES, JSON.stringify(series)); }
+    try { localStorage.setItem(STORE, JSON.stringify(tasks)); localStorage.setItem(SERIES, JSON.stringify(series)); queuePush(); }
     catch (e) { say('Could not save on this device 😢'); }
   }
   function snapshot() { return JSON.parse(JSON.stringify(tasks)); }
@@ -809,6 +817,80 @@
       });
     });
   }
+  // ---------- Alerts when the app is closed ----------
+  function b64uBytes(s) {
+    s = s.replace(/-/g, '+').replace(/_/g, '/');
+    while (s.length % 4) s += '=';
+    var bin = atob(s), out = new Uint8Array(bin.length);
+    for (var i = 0; i < bin.length; i++) out[i] = bin.charCodeAt(i);
+    return out;
+  }
+  function pushReady() { return !!PUSH_SERVER && !!VAPID_PUBLIC; }
+  // Undone timed tasks for the next 7 days, sent to the server so it can ping this phone when one is due.
+  function upcomingReminders() {
+    var now = Date.now(), limit = now + 7 * 864e5, out = [];
+    tasks.forEach(function (t) {
+      if (t.Done || !t.Time || !t.Date || !t.Title) return;
+      var d = t.Date.split('-'), hm = t.Time.split(':');
+      var at = new Date(+d[0], +d[1] - 1, +d[2], +hm[0], +hm[1]).getTime();
+      if (isNaN(at) || at < now - 120000 || at > limit) return;   // skip times that have already passed
+      out.push({ k: t.Id + '|' + t.Date + '|' + t.Time, title: t.Title, time: t.Time, at: new Date(at).toISOString() });
+    });
+    return out.slice(0, 100);
+  }
+  function syncPush() {
+    if (!pushOn || !pushReady() || !('serviceWorker' in navigator)) return Promise.resolve();
+    pushLast = Date.now();
+    return navigator.serviceWorker.ready.then(function (reg) { return reg.pushManager.getSubscription(); })
+      .then(function (sub) {
+        if (!sub) { pushOn = false; try { localStorage.setItem(PUSHON, '0'); } catch (e) {} return; }
+        return fetch(PUSH_SERVER + '/sync', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ subscription: { endpoint: sub.endpoint }, reminders: upcomingReminders() })
+        });
+      }).catch(function () {});
+  }
+  function queuePush() {
+    if (!pushOn) return;
+    clearTimeout(pushTimer);
+    pushTimer = setTimeout(syncPush, 1500);
+  }
+  // Must be called straight from a tap: iPhone only asks for notification permission inside a tap.
+  function enablePush() {
+    if (!pushReady()) { say('Alerts are not set up yet'); return; }
+    var ios = /iphone|ipad|ipod/i.test(navigator.userAgent);
+    var standalone = navigator.standalone || matchMedia('(display-mode: standalone)').matches;
+    if (!('PushManager' in window) || !('Notification' in window) || (ios && !standalone)) {
+      say('On iPhone, add Daily Joy to the Home Screen first 📲'); return;
+    }
+    var asked = Notification.requestPermission();
+    Promise.resolve(asked).then(function (p) {
+      if (p !== 'granted') { say('Alerts not allowed. Allow them in Settings > Notifications 🔕'); return; }
+      return navigator.serviceWorker.ready.then(function (reg) {
+        return reg.pushManager.getSubscription().then(function (s) {
+          return s || reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: b64uBytes(VAPID_PUBLIC) });
+        });
+      }).then(function () {
+        pushOn = true; try { localStorage.setItem(PUSHON, '1'); } catch (e) {}
+        return syncPush();
+      }).then(function () { say('Alerts on 🔔 You will get reminders even when the app is closed'); });
+    }).catch(function () { say('Could not turn alerts on 😢'); });
+  }
+  function disablePush() {
+    pushOn = false; try { localStorage.setItem(PUSHON, '0'); } catch (e) {}
+    say('Alerts off 🔕');
+    if (!('serviceWorker' in navigator)) return;
+    navigator.serviceWorker.ready.then(function (reg) { return reg.pushManager.getSubscription(); }).then(function (sub) {
+      if (!sub) return;
+      var ep = sub.endpoint;
+      return sub.unsubscribe().then(function () {
+        if (pushReady()) return fetch(PUSH_SERVER + '/unsubscribe', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ endpoint: ep })
+        });
+      });
+    }).catch(function () {});
+  }
+
   function menuSheet() {
     var dark = document.documentElement.dataset.theme === 'dark';
     var items = [
@@ -816,6 +898,7 @@
       ['move', '➡️', 'Move unfinished to tomorrow', ''],
       ['clear', '🧹', 'Clear done tasks', ''],
       ['alarm', alarmOn ? '🔔' : '🔕', 'In-app alarm', alarmOn ? 'On' : 'Off'],
+      ['push', pushOn ? '🔔' : '🔕', 'Alerts when closed', pushOn ? 'On' : 'Off'],
       ['testsound', '🔊', 'Test alarm sound', 'Plays a chime'],
       ['lang', '🎙️', 'Voice language', (LANGS.filter(function (l) { return l[0] === (function () { try { return localStorage.getItem(LANG) || ''; } catch (e) { return ''; } })(); })[0] || LANGS[0])[1]],
       ['theme', dark ? '☀️' : '🌙', dark ? 'Light theme' : 'Dark theme', ''],
@@ -832,6 +915,7 @@
         b.onclick = function () {
           var a = b.dataset.a;
           if (a === 'import') { $('importFile').click(); closeSheet(); return; } // click must happen inside the tap
+          if (a === 'push') { if (pushOn) disablePush(); else enablePush(); closeSheet(); return; } // permission prompt must be inside the tap
           if (a === 'testsound') {
             unlockAudio.skipDance = true; unlockAudio(); unlockAudio.skipDance = false;
             // we're inside a tap, so play for real right away; that also unlocks the element
@@ -1342,6 +1426,7 @@
     fillRepeats();
     render();
     checkAlarms();
+    if (pushOn && Date.now() - pushLast > 10 * 60000) syncPush();   // refresh the server's list now and then
   }
   document.addEventListener('visibilitychange', function () { if (!document.hidden) tick(); });
   setInterval(tick, 60000);
