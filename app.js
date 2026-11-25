@@ -376,7 +376,14 @@
     rec.interimResults = true;
     rec.continuous = false;
     rec.maxAlternatives = 1;
-    rec.onstart = function () { say('Listening… say it like “Gym at 6pm tomorrow” 🎙️'); };
+    // Stop on our own once you go quiet (iPhone keeps listening otherwise):
+    // 1.5 s of silence after you've said something, or 7 s if nothing was heard at all.
+    var quiet = null;
+    function stopSoon(ms) {
+      clearTimeout(quiet);
+      quiet = setTimeout(function () { try { rec.stop(); } catch (e) {} }, ms);
+    }
+    rec.onstart = function () { say('Listening… say it like “Gym at 6pm tomorrow” 🎙️'); stopSoon(7000); };
     rec.onresult = function (e) {
       var interim = '';
       for (var i = e.resultIndex; i < e.results.length; i++) {
@@ -385,6 +392,7 @@
       }
       full = (heard + interim).trim();
       input.value = full;
+      if (full) stopSoon(1500);
     };
     rec.onerror = function (e) {
       if (e.error === 'aborted') return;
@@ -393,6 +401,7 @@
         : 'Voice didn’t work this time. Try again 🎙️');
     };
     rec.onend = function () {
+      clearTimeout(quiet);
       listening = false; setMic(false);
       if (full) { input.value = ''; addByVoice(full); }
       else input.value = prev;
@@ -889,7 +898,7 @@
         p.life--; p.vy += p.g; p.vx *= .985; p.x += p.vx; p.y += p.vy; p.rot += p.vr;
         ctx.globalAlpha = Math.min(1, p.life / 25);
         ctx.fillStyle = p.c;
-        if (p.star) { ctx.beginPath(); ctx.arc(p.x, p.y, p.s * (p.life / 44), 0, Math.PI * 2); ctx.fill(); }
+        if (p.star) { ctx.beginPath(); ctx.arc(p.x, p.y, Math.max(0, p.s * (p.life / 44)), 0, Math.PI * 2); ctx.fill(); }
         else {
           ctx.save(); ctx.translate(p.x, p.y); ctx.rotate(p.rot);
           ctx.fillRect(-p.s / 2, -p.s / 4, p.s, p.s / 2 * (0.6 + Math.abs(Math.sin(p.rot * 2)))); ctx.restore();
