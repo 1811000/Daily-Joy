@@ -15,15 +15,19 @@
   button { font: inherit; font-weight: 800; color: #fff; border: 0; border-radius: 14px; padding: 14px 22px; width: 100%;
            background: linear-gradient(140deg, #ff6384, #ffa743); }
   button:disabled { opacity: .5; }
+  button.ghost { background: transparent; color: #7a6e8e; border: 1.5px solid #e6d8cc; }
+  button.close { margin-top: 10px; background: #ffede8; color: #312642; }
+  [hidden] { display: none !important; }
   @media (prefers-color-scheme: dark) { html, body { background: #151322; color: #f1edfb; } p { color: #aaa2c6; } }
 </style>
 </head>
 <body>
 <div class="card">
-  <div class="big">📅</div>
-  <h1>Add to Calendar</h1>
+  <div class="big" id="big">📅</div>
+  <h1 id="h">Add to Calendar</h1>
   <p id="p">Tap the button below to add this reminder.</p>
   <button type="button" id="go">Add to Calendar</button>
+  <button type="button" id="close" class="close" hidden>Close this page</button>
 </div>
 <script>
 /* Daily Joy opens this page in Safari (the Home Screen app can't hand a calendar file to Safari itself).
@@ -42,7 +46,26 @@
   // Helper that serves the file with the right type (installed by Daily Joy on first use).
   if ('serviceWorker' in navigator) navigator.serviceWorker.register('sw.js').catch(function () {});
 
+  var tapped = false;
+  function showDone() {
+    document.getElementById('h').textContent = 'All set! ✅';
+    document.getElementById('big').textContent = '🎉';
+    p.innerHTML = 'If you tapped <b>Add</b>, the reminder is in your Calendar.<br><br>' +
+      'Now go back to <b>Daily Joy</b>: swipe up from the bottom edge and pick it, or tap its Home Screen icon.';
+    go.textContent = 'Add it again'; go.className = 'ghost';
+    var c = document.getElementById('close'); c.hidden = false;
+  }
+  // Coming back from the Calendar screen: show the "done" message instead of the same page again.
+  function back() { if (tapped) showDone(); }
+  document.addEventListener('visibilitychange', function () { if (!document.hidden) back(); });
+  window.addEventListener('pageshow', back);
+  document.getElementById('close').onclick = function () {
+    window.close(); // only works when Safari allows it; otherwise the swipe-up tip above is the way back
+    setTimeout(function () { p.innerHTML = 'Swipe up from the bottom edge (or tap the Daily Joy icon) to go back to the app.'; }, 300);
+  };
+
   go.onclick = function () {
+    tapped = true;
     if (navigator.serviceWorker && navigator.serviceWorker.controller) {
       location.href = 'reminder.ics?d=' + encodeURIComponent(ics);
     } else {
