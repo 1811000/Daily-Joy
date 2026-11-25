@@ -460,6 +460,7 @@
       ['today', '☀️', 'Jump to today', ''],
       ['move', '➡️', 'Move unfinished to tomorrow', ''],
       ['clear', '🧹', 'Clear done tasks', ''],
+      ['alarm', alarmOn ? '🔔' : '🔕', 'In-app alarm', alarmOn ? 'On' : 'Off'],
       ['theme', dark ? '☀️' : '🌙', dark ? 'Light theme' : 'Dark theme', ''],
       ['export', '📦', 'Export tasks', 'Save a .json backup'],
       ['import', '📥', 'Import tasks', 'From a backup or the PC app']
@@ -479,6 +480,13 @@
             if (a === 'today') setView(today());
             else if (a === 'move') moveUnfinished();
             else if (a === 'clear') clearDone();
+            else if (a === 'alarm') {
+              alarmOn = !alarmOn;
+              try { localStorage.setItem(ALARM, alarmOn ? '1' : '0'); } catch (e) {}
+              unlockAudio();
+              say(alarmOn ? 'In-app alarm on 🔔' : 'In-app alarm off 🔕');
+              if (alarmOn) checkAlarms();
+            }
             else if (a === 'theme') setTheme(dark ? 'light' : 'dark');
             else if (a === 'export') exportTasks();
           }, 120);
@@ -500,6 +508,7 @@
         '<input class="field" type="time" id="eTime" aria-label="Time"></div>' +
       '<div class="row" style="margin-top:6px"><span class="muted" id="eTimeTxt"></span>' +
         '<button type="button" class="btn ghost small" id="eNoTime" style="flex:0 0 auto">No time</button></div>' +
+      '<button type="button" class="btn soft cal-btn" id="eCal">📅 Add alert to iPhone Calendar</button>' +
       '<h3>Priority</h3><div class="seg" id="ePrio">' +
         PRIOS.map(function (p, i) { return '<button type="button" data-v="' + i + '" style="--sc:' + p.color + '">' + p.emoji + ' ' + p.name + '</button>'; }).join('') + '</div>' +
       '<h3>Category</h3><div class="seg" id="eCat">' +
@@ -516,6 +525,7 @@
         $('eDate').value = d.Date; $('eTime').value = d.Time;
         $('eTimeTxt').textContent = d.Time ? '🕒 ' + timeDisp(d.Time) + ' · ' + friendly(parseKey(d.Date)) : 'No time set · ' + friendly(parseKey(d.Date));
         $('eNoTime').hidden = !d.Time;
+        $('eCal').hidden = !d.Time;
       }
       s.querySelectorAll('#eWhen button').forEach(function (b) { b.onclick = function () { d.Date = b.dataset.v; sync(); }; });
       s.querySelectorAll('#ePrio button').forEach(function (b) { b.onclick = function () { d.Priority = +b.dataset.v; sync(); }; });
@@ -523,6 +533,10 @@
       $('eDate').onchange = function () { if (this.value) d.Date = this.value; sync(); };
       $('eTime').onchange = function () { d.Time = this.value || ''; sync(); };
       $('eNoTime').onclick = function () { d.Time = ''; sync(); };
+      $('eCal').onclick = function () {
+        if (!d.Time) return;
+        addToCalendar({ Id: t.Id, Title: $('eTitle').value.trim() || t.Title, Notes: $('eNotes').value.trim(), Date: d.Date, Time: d.Time });
+      };
       $('eCancel').onclick = closeSheet;
       $('eDel').onclick = function () { closeSheet(); setTimeout(function () { deleteTask(id); }, 150); };
       $('eSave').onclick = function () {
@@ -536,6 +550,132 @@
       };
       sync();
     });
+  }
+
+  // ---------- Calendar reminder (.ics with alerts) ----------
+  // iOS shows these as real notifications even when this app is closed.
+  function icsText(s) { return String(s).replace(/\\/g, '\\\\').replace(/;/g, '\\;').replace(/,/g, '\\,').replace(/\r?\n/g, '\\n'); }
+  function icsStamp(d) {
+    return d.getFullYear() + pad(d.getMonth() + 1) + pad(d.getDate()) + 'T' + pad(d.getHours()) + pad(d.getMinutes()) + '00';
+  }
+  function buildIcs(t) {
+    var p = t.Time.split(':'), start = parseKey(t.Date);
+    start.setHours(+p[0], +p[1], 0, 0);
+    var end = new Date(start.getTime() + 30 * 60000), now = new Date();
+    var z = now.getUTCFullYear() + pad(now.getUTCMonth() + 1) + pad(now.getUTCDate()) + 'T' + pad(now.getUTCHours()) + pad(now.getUTCMinutes()) + pad(now.getUTCSeconds()) + 'Z';
+    var title = icsText(t.Title);
+    function alarm(trigger, text) { // text is already escaped
+      return ['BEGIN:VALARM', 'ACTION:DISPLAY', 'DESCRIPTION:' + text, 'TRIGGER:' + trigger, 'END:VALARM'];
+    }
+    var lines = ['BEGIN:VCALENDAR', 'VERSION:2.0', 'PRODID:-//Daily Joy//EN', 'CALSCALE:GREGORIAN', 'METHOD:PUBLISH',
+      'BEGIN:VEVENT', 'UID:' + t.Id + '-' + icsStamp(start) + '@dailyjoy', 'DTSTAMP:' + z,
+      'DTSTART:' + icsStamp(start), 'DTEND:' + icsStamp(end), 'SUMMARY:⏰ ' + title];
+    if (t.Notes) lines.push('DESCRIPTION:' + icsText(t.Notes));
+    lines = lines.concat(alarm('-PT10M', title + ' (in 10 minutes)'), alarm('PT0S', title + ' (now!)'), ['END:VEVENT', 'END:VCALENDAR']);
+    return lines.join('\r\n') + '\r\n';
+  }
+  function addToCalendar(t) {
+    var ics = buildIcs(t);
+    var name = (t.Title.replace(/[^\w\- ]+/g, '').trim().replace(/\s+/g, '-').slice(0, 30) || 'reminder') + '.ics';
+    var file = null;
+    try { file = new File([ics], name, { type: 'text/calendar' }); } catch (e) {}
+    if (file && navigator.canShare && navigator.canShare({ files: [file] }) && /iphone|ipad|ipod|android/i.test(navigator.userAgent)) {
+      navigator.share({ files: [file], title: t.Title }).catch(function () {});
+      return;
+    }
+    var url = URL.createObjectURL(new Blob([ics], { type: 'text/calendar' }));
+    var a = document.createElement('a');
+    a.href = url; a.download = name; document.body.appendChild(a); a.click(); a.remove();
+    setTimeout(function () { URL.revokeObjectURL(url); }, 4000);
+    say('Calendar file ready 📅');
+  }
+
+  // ---------- In-app alarm (works while Daily Joy is open) ----------
+  var ALARM = 'dailyjoy.alarm', FIRED = 'dailyjoy.fired';
+  var alarmOn = (function () { try { return localStorage.getItem(ALARM) !== '0'; } catch (e) { return true; } })();
+  var fired = (function () { try { return JSON.parse(localStorage.getItem(FIRED) || '{}'); } catch (e) { return {}; } })();
+  var snoozed = {}, alarmShowing = null, chimeTimer = null, audio = null;
+
+  function saveFired() {
+    var cutoff = Date.now() - 3 * 86400000;
+    Object.keys(fired).forEach(function (k) { if (fired[k] < cutoff) delete fired[k]; });
+    try { localStorage.setItem(FIRED, JSON.stringify(fired)); } catch (e) {}
+  }
+  // iOS only lets a page make sound after a tap, so unlock audio on the first touch.
+  function unlockAudio() {
+    try {
+      var AC = window.AudioContext || window.webkitAudioContext;
+      if (!AC) return;
+      if (!audio) audio = new AC();
+      if (audio.state === 'suspended') audio.resume();
+    } catch (e) {}
+  }
+  ['pointerdown', 'touchend', 'click', 'keydown'].forEach(function (ev) { document.addEventListener(ev, unlockAudio, { passive: true }); });
+
+  function chime() {
+    if (!audio || audio.state !== 'running') return;
+    var notes = [880, 1108.7, 1318.5, 1760], t0 = audio.currentTime + 0.02;
+    notes.forEach(function (f, i) {
+      var o = audio.createOscillator(), g = audio.createGain(), st = t0 + i * 0.16;
+      o.type = 'sine'; o.frequency.value = f;
+      g.gain.setValueAtTime(0.0001, st);
+      g.gain.exponentialRampToValueAtTime(0.35, st + 0.02);
+      g.gain.exponentialRampToValueAtTime(0.0001, st + 0.7);
+      o.connect(g); g.connect(audio.destination); o.start(st); o.stop(st + 0.75);
+    });
+  }
+  function ringAlarm() {
+    chime();
+    var act = navigator.userActivation;
+    if (navigator.vibrate && (!act || act.hasBeenActive)) navigator.vibrate([200, 100, 200]);
+  }
+  function stopRinging() { clearInterval(chimeTimer); chimeTimer = null; }
+
+  function showAlarm(t) {
+    alarmShowing = t.Id;
+    var c = cat(t.Category), box = $('alarm');
+    box.innerHTML = '<div class="alarm-card"><div class="alarm-bell" aria-hidden="true">⏰</div>' +
+      '<div class="alarm-time">' + timeDisp(t.Time) + '</div>' +
+      '<div class="alarm-title">' + esc(t.Title) + '</div>' +
+      (t.Notes ? '<div class="alarm-notes">' + esc(t.Notes.split('\n')[0]) + '</div>' : '') +
+      '<div class="alarm-cat" style="--tc:' + c.color + '">' + c.emoji + ' ' + c.name + '</div>' +
+      '<div class="alarm-actions"><button type="button" class="btn primary" data-a="done">✅ Done</button>' +
+      '<button type="button" class="btn soft" data-a="snooze">💤 Snooze 10 min</button>' +
+      '<button type="button" class="btn ghost" data-a="dismiss">Dismiss</button></div></div>';
+    box.hidden = false;
+    requestAnimationFrame(function () { box.classList.add('show'); });
+    var rings = 0;
+    ringAlarm(); stopRinging();
+    chimeTimer = setInterval(function () { if (++rings > 12) stopRinging(); else ringAlarm(); }, 4000);
+    box.querySelectorAll('button').forEach(function (b) {
+      b.onclick = function () {
+        var a = b.dataset.a;
+        if (a === 'done') { var x = find(t.Id); if (x) { x.Done = true; save(); } say('Nice, done! ✅'); }
+        else if (a === 'snooze') { snoozed[t.Id] = Date.now() + 10 * 60000; say('Snoozed for 10 minutes 💤'); }
+        hideAlarm();
+        render();
+      };
+    });
+  }
+  function hideAlarm() {
+    var box = $('alarm');
+    stopRinging(); alarmShowing = null;
+    box.classList.remove('show');
+    setTimeout(function () { if (!alarmShowing) { box.hidden = true; box.innerHTML = ''; } checkAlarms(); }, 250);
+  }
+
+  function checkAlarms() {
+    if (!alarmOn || alarmShowing) return;
+    var now = Date.now(), tk = key(today()), next = null;
+    tasks.some(function (t) {
+      if (t.Done || !t.Time || t.Date !== tk) return false;
+      var p = t.Time.split(':'), due = new Date(); due.setHours(+p[0], +p[1], 0, 0);
+      var id = t.Id + '|' + t.Date + '|' + t.Time;
+      if (snoozed[t.Id]) { if (snoozed[t.Id] > now) return false; delete snoozed[t.Id]; next = t; return true; }
+      if (fired[id] || now < due.getTime() || now - due.getTime() > 2 * 3600000) return false;
+      fired[id] = now; saveFired(); next = t; return true;
+    });
+    if (next) showAlarm(next);
   }
 
   // ---------- Effects (sparkle & confetti) ----------
@@ -637,9 +777,11 @@
     var k = key(today());
     if (k !== lastDay) { if (key(view) === lastDay) view = today(); lastDay = k; }
     render();
+    checkAlarms();
   }
   document.addEventListener('visibilitychange', function () { if (!document.hidden) tick(); });
   setInterval(tick, 60000);
+  setInterval(checkAlarms, 10000);
   window.addEventListener('resize', function () { if (running) sizeFx(); });
 
   // "Add to Home Screen" hint for iPhone Safari
@@ -660,4 +802,5 @@
   (function () { var m = document.querySelector('meta[name="theme-color"]'); if (m && document.documentElement.dataset.theme === 'dark') m.setAttribute('content', '#3a2160'); })();
 
   render();
+  checkAlarms();
 })();

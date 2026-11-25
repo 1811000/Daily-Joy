@@ -346,6 +346,37 @@ textarea.field { resize: vertical; min-height: 84px; }
 .sheet-actions .btn { flex: 1; }
 .sheet-actions .btn.danger { flex: 0 0 auto; }
 .muted { color: var(--sub); font-size: 13.5px; }
+.cal-btn { width: 100%; margin-top: 10px; }
+.cal-btn[hidden] { display: none; }
+
+/* ---------- In-app alarm ---------- */
+.alarm {
+  position: fixed; inset: 0; z-index: 70; display: flex; align-items: center; justify-content: center;
+  padding: 24px; background: rgba(20, 10, 30, .55); opacity: 0; transition: opacity .25s;
+}
+.alarm[hidden] { display: none; }
+.alarm.show { opacity: 1; }
+.alarm-card {
+  width: 100%; max-width: 380px; padding: 26px 22px 20px; border-radius: 28px; text-align: center;
+  background: var(--card); color: var(--text); box-shadow: var(--shadow-lg);
+  transform: scale(.9); transition: transform .3s cubic-bezier(.25,1.4,.4,1);
+}
+.alarm.show .alarm-card { transform: scale(1); }
+.alarm-bell { font-size: 58px; line-height: 1; display: inline-block; animation: ring 1.2s ease-in-out infinite; transform-origin: 50% 10%; }
+@keyframes ring {
+  0%, 60%, 100% { transform: rotate(0); }
+  10%, 30%, 50% { transform: rotate(-16deg); }
+  20%, 40% { transform: rotate(16deg); }
+}
+.alarm-time { margin-top: 10px; font-size: 15px; font-weight: 800; color: var(--accent); letter-spacing: .5px; }
+.alarm-title { margin-top: 4px; font-size: 24px; font-weight: 850; word-wrap: break-word; }
+.alarm-notes { margin-top: 6px; color: var(--sub); font-size: 14.5px; }
+.alarm-cat {
+  display: inline-block; margin-top: 10px; padding: 4px 10px; border-radius: 999px; font-size: 12.5px; font-weight: 700;
+  color: var(--tc); background: color-mix(in srgb, var(--tc) 14%, transparent);
+}
+.alarm-actions { display: flex; flex-direction: column; gap: 8px; margin-top: 20px; }
+.alarm-actions .btn { width: 100%; }
 
 @media (min-width: 600px) {
   .app { padding-top: 20px; }
