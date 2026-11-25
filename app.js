@@ -625,6 +625,9 @@
       '<h3>When</h3><div class="seg" id="eWhen">' +
         '<button type="button" data-v="' + tk + '">☀️ Today</button>' +
         '<button type="button" data-v="' + tmk + '">🌅 Tomorrow</button></div>' +
+      '<div class="seg step" id="eStep" style="margin-top:8px">' +
+        '<button type="button" id="ePrev">‹ Previous day</button>' +
+        '<button type="button" id="eNext">Next day ›</button></div>' +
       '<div class="row" style="margin-top:8px"><input class="field" type="date" id="eDate" aria-label="Date">' +
         '<input class="field" type="time" id="eTime" aria-label="Time"></div>' +
       '<div class="row" style="margin-top:6px"><span class="muted" id="eTimeTxt"></span>' +
@@ -651,6 +654,8 @@
       s.querySelectorAll('#eWhen button').forEach(function (b) { b.onclick = function () { d.Date = b.dataset.v; sync(); }; });
       s.querySelectorAll('#ePrio button').forEach(function (b) { b.onclick = function () { d.Priority = +b.dataset.v; sync(); }; });
       s.querySelectorAll('#eCat button').forEach(function (b) { b.onclick = function () { d.Category = b.dataset.v; sync(); }; });
+      $('ePrev').onclick = function () { d.Date = key(addDays(parseKey(d.Date), -1)); sync(); };
+      $('eNext').onclick = function () { d.Date = key(addDays(parseKey(d.Date), 1)); sync(); };
       $('eDate').onchange = function () { if (this.value) d.Date = this.value; sync(); };
       $('eTime').onchange = function () { d.Time = this.value || ''; sync(); };
       $('eNoTime').onclick = function () { d.Time = ''; sync(); };
