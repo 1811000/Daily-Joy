@@ -353,18 +353,9 @@
     e.preventDefault();
     var input = $('newTitle'), text = input.value.trim();
     if (!text) { input.focus(); return; }
-    var time = newTime, rule = newRepeat, date = view, rp = extractRepeat(text);
-    if (rp) { text = rp.rest; rule = rp.rule; if (rp.weekday !== null) date = nextWeekday(today(), rp.weekday); }
-    var parsed = extractTime(text);
-    if (parsed) { text = parsed.rest; if (!time) time = parsed.time; }
-    createTask(text, date, time, rule);
     input.value = '';
-    newTime = ''; newRepeat = '';
-    if (filter === 'done') filter = 'all';
-    if (catFilter && catFilter !== newCat) catFilter = null;
-    render();
-    sparkle(document.querySelector('.add-btn'), 10);
-    say(friendlyAdd(text, time, date, rule));
+    addByVoice(text, true);          // same smart parser as voice: dates, priority, several tasks at once
+    newTime = '';
   }
   // Adds a task (and, when a repeat is chosen, starts its series and creates the coming ones).
   function createTask(title, date, time, rule, prio, cat) {
@@ -537,8 +528,9 @@
     return WDL[d.getDay()] + ', ' + MON[d.getMonth()] + ' ' + d.getDate();
   }
   // One sentence can hold several tasks: "gym at 6pm then call mom tomorrow at noon".
-  var SPLIT_RX = /\s+(?:and then|and also|and remind me to|and remember to|and don'?t forget to|then|also|next task|another task|another reminder|new task|new reminder)\s+/i;
-  function addByVoice(text) {
+  var SPLIT_RX = /\s+(?:and then|and also|and remind me to|and remember to|and don'?t forget to|and|then|also|next task|another task|another reminder|new task|new reminder)\s+/i;
+  function addByVoice(text, typed) {
+    text = text.replace(/[“”"«»]/g, '').replace(/\s*[,;]+\s*/g, ' ').replace(/\s+/g, ' ').trim();   // dictation adds commas: "6pm, then, call mom"
     var parts = text.split(SPLIT_RX).map(function (x) { return x.trim(); }).filter(Boolean);
     if (!parts.length) return;
     var added = [];
@@ -556,7 +548,7 @@
     if (filter === 'done') filter = 'all';
     if (catFilter) catFilter = null;
     render();
-    sparkle($('micBtn'), 14);
+    sparkle(typed ? document.querySelector('.add-btn') : $('micBtn'), 14);
     var msg;
     if (added.length === 1) {
       var a = added[0];
@@ -565,7 +557,7 @@
       msg = 'Added ' + added.length + ' tasks: ' + added.map(function (a) { return a.p.title; }).join(', ') + '.';
     }
     say(msg + ' ✅');
-    speak(msg);
+    if (!typed) speak(msg);
   }
   function setMic(on) {
     var b = $('micBtn');
