@@ -300,7 +300,18 @@
     var dark = document.documentElement.dataset.theme === 'dark';
     $('themeBtn').textContent = dark ? '☀️' : '🌙';
     $('themeBtn').setAttribute('aria-label', dark ? 'Switch to light theme' : 'Switch to dark theme');
+
+    // app icon badge: how many tasks are still to do today (only shown when the phone allows it)
+    var left = tasksOn(key(today())).filter(function (t) { return !t.Done; }).length;
+    if (left !== badgeShown) {
+      badgeShown = left;
+      try {
+        if (left && navigator.setAppBadge) navigator.setAppBadge(left).catch(function () {});
+        else if (!left && navigator.clearAppBadge) navigator.clearAppBadge().catch(function () {});
+      } catch (e) {}
+    }
   }
+  var badgeShown = -1;
 
   function card(t) {
     var c = cat(t.Category), p = prio(t.Priority), meta = '';
@@ -692,15 +703,35 @@
     });
   }
 
-  function setView(d) { view = d; catFilter = null; render(); }
+  // Changing day slides the list in from the side you moved towards.
+  function setView(d) {
+    var moved = key(d) !== key(view), dir = d > view ? 1 : -1;
+    view = d; catFilter = null; render();
+    if (!moved) return;
+    var l = $('list');
+    l.classList.remove('slide-r', 'slide-l'); void l.offsetWidth;
+    l.classList.add(dir > 0 ? 'slide-r' : 'slide-l');
+  }
 
-  function setTheme(t) {
+  // Theme: applyTheme only shows it; setTheme also remembers the user's choice.
+  function applyTheme(t) {
     document.documentElement.dataset.theme = t;
-    try { localStorage.setItem(THEME, t); } catch (e) {}
     var m = document.querySelector('meta[name="theme-color"]');
     if (m) m.setAttribute('content', t === 'dark' ? '#3a2160' : '#ff6f7d');
     render();
   }
+  function savedTheme() {
+    try { var t = localStorage.getItem(THEME); return t === 'light' || t === 'dark' ? t : null; } catch (e) { return null; }
+  }
+  function setTheme(t) {
+    try { localStorage.setItem(THEME, t); } catch (e) {}
+    applyTheme(t);
+  }
+  // With no saved choice the app follows the phone's light/dark setting, live.
+  var sysDark = matchMedia('(prefers-color-scheme: dark)');
+  function followSystem() { if (!savedTheme()) applyTheme(sysDark.matches ? 'dark' : 'light'); }
+  if (sysDark.addEventListener) sysDark.addEventListener('change', followSystem);
+  else if (sysDark.addListener) sysDark.addListener(followSystem);
 
   // ---------- Export / Import ----------
   function exportTasks() {
@@ -757,6 +788,7 @@
   function openSheet(html, mount) {
     var s = $('sheet'), b = $('backdrop');
     s.innerHTML = '<div class="grab"></div>' + html;
+    s.style.transform = ''; s.style.transition = ''; b.style.opacity = ''; b.style.transition = '';   // clear any drag leftovers
     s.hidden = false; b.hidden = false;
     requestAnimationFrame(function () { requestAnimationFrame(function () { s.classList.add('show'); b.classList.add('show'); }); });
     if (mount) mount(s);
@@ -769,6 +801,44 @@
     setTimeout(function () { s.hidden = true; b.hidden = true; s.innerHTML = ''; }, 300);
     if (sheetClose) { var f = sheetClose; sheetClose = null; f(); }
   }
+
+  // Drag the sheet down by its top edge to close it. Only starts when the sheet's content is scrolled to the top,
+  // so normal scrolling inside a long sheet still works.
+  (function () {
+    var s = $('sheet'), b = $('backdrop');
+    var y0 = 0, dy = 0, armed = false, drag = false;
+    s.addEventListener('touchstart', function (e) {
+      armed = e.touches.length === 1 && s.scrollTop <= 0;
+      drag = false; dy = 0; y0 = e.touches[0].clientY;
+    }, { passive: true });
+    s.addEventListener('touchmove', function (e) {
+      if (!armed) return;
+      var d = e.touches[0].clientY - y0;
+      if (!drag) {
+        if (Math.abs(d) < 8) return;
+        if (d < 0 || s.scrollTop > 0) { armed = false; return; }   // it's a scroll, leave it alone
+        drag = true; s.style.transition = 'none'; b.style.transition = 'none';
+      }
+      e.preventDefault();
+      dy = Math.max(0, d);
+      s.style.transform = 'translateY(' + dy + 'px)';
+      b.style.opacity = String(Math.max(0, 1 - dy / 320));
+    }, { passive: false });
+    function release() {
+      var was = drag;
+      armed = false; drag = false;
+      if (!was) return;
+      s.style.transition = ''; b.style.transition = '';
+      if (dy > 110) {
+        s.style.transform = 'translateY(105%)'; b.style.opacity = '';
+        closeSheet();
+      } else {
+        s.style.transform = ''; b.style.opacity = '';   // springs back
+      }
+    }
+    s.addEventListener('touchend', release);
+    s.addEventListener('touchcancel', release);
+  })();
 
   function catSheet(current, onPick) {
     var html = '<h2>Pick a category</h2><div class="opts">';
@@ -902,6 +972,7 @@
       ['testsound', '🔊', 'Test alarm sound', 'Plays a chime'],
       ['lang', '🎙️', 'Voice language', (LANGS.filter(function (l) { return l[0] === (function () { try { return localStorage.getItem(LANG) || ''; } catch (e) { return ''; } })(); })[0] || LANGS[0])[1]],
       ['theme', dark ? '☀️' : '🌙', dark ? 'Light theme' : 'Dark theme', ''],
+      ['auto', '🌗', 'Match phone theme', savedTheme() ? 'Off' : 'On'],
       ['export', '📦', 'Export tasks', 'Save a .json backup'],
       ['import', '📥', 'Import tasks', 'From a backup or the PC app']
     ];
@@ -934,6 +1005,7 @@
               if (alarmOn) checkAlarms();
             }
             else if (a === 'theme') setTheme(dark ? 'light' : 'dark');
+            else if (a === 'auto') { try { localStorage.removeItem(THEME); } catch (e) {} applyTheme(sysDark.matches ? 'dark' : 'light'); }
             else if (a === 'export') exportTasks();
             else if (a === 'lang') langSheet();
           }, 350);
@@ -1444,11 +1516,23 @@
 
   // Offline support
   if ('serviceWorker' in navigator && (location.protocol === 'https:' || location.hostname === 'localhost' || location.hostname === '127.0.0.1')) {
-    window.addEventListener('load', function () { navigator.serviceWorker.register('sw.js').catch(function () {}); });
+    // A new version takes over while this page is open; this page's code is still the old one until it reloads.
+    var hadController = !!navigator.serviceWorker.controller;
+    navigator.serviceWorker.addEventListener('controllerchange', function () { if (hadController) $('updateBar').hidden = false; });
+    $('updateBtn').onclick = function () { location.reload(); };
+    window.addEventListener('load', function () {
+      navigator.serviceWorker.register('sw.js').then(function (reg) { reg.update().catch(function () {}); }).catch(function () {});
+    });
   }
 
   // keep the browser chrome colour in step with the theme on first load
   (function () { var m = document.querySelector('meta[name="theme-color"]'); if (m && document.documentElement.dataset.theme === 'dark') m.setAttribute('content', '#3a2160'); })();
+
+  // Launch splash: fade it away once the first screen is drawn.
+  (function () {
+    var sp = $('splash'); if (!sp) return;
+    setTimeout(function () { sp.classList.add('gone'); setTimeout(function () { sp.remove(); }, 450); }, 700);
+  })();
 
   fillRepeats();
   render();

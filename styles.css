@@ -46,6 +46,7 @@ html[data-theme="dark"] {
 * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
 [hidden] { display: none !important; }
 html, body { margin: 0; padding: 0; }
+html { overscroll-behavior: none; touch-action: manipulation; }
 body {
   background: var(--bg);
   color: var(--text);
@@ -54,8 +55,13 @@ body {
   min-height: 100vh;
   min-height: 100dvh;
   overscroll-behavior-y: none;
+  -webkit-touch-callout: none;   /* no long-press callout */
+  -webkit-user-select: none;
+  user-select: none;
+  touch-action: manipulation;    /* no double-tap zoom; pinch still works */
 }
 button, input, textarea, select { font: inherit; color: inherit; }
+input, textarea, .field { -webkit-user-select: text; user-select: text; }
 button { cursor: pointer; border: 0; background: none; padding: 0; }
 
 .app { max-width: 560px; margin: 0 auto; padding-bottom: calc(28px + env(safe-area-inset-bottom)); }
@@ -238,6 +244,10 @@ main { padding: 0 14px; }
 
 /* ---------- Task cards ---------- */
 .list { display: flex; flex-direction: column; gap: 10px; margin-top: 12px; }
+.list.slide-r { animation: slide-r .3s cubic-bezier(.25,1,.4,1) both; }
+.list.slide-l { animation: slide-l .3s cubic-bezier(.25,1,.4,1) both; }
+@keyframes slide-r { from { opacity: 0; transform: translateX(28px); } }
+@keyframes slide-l { from { opacity: 0; transform: translateX(-28px); } }
 .section-h { font-size: 12.5px; font-weight: 800; color: var(--sub); text-transform: uppercase; letter-spacing: .7px; margin: 6px 4px -2px; }
 .task {
   position: relative; display: flex; align-items: flex-start; gap: 12px;
@@ -332,6 +342,7 @@ html[data-theme="dark"] .toast button { color: #c2185b; }
   border-radius: 26px 26px 0 0; box-shadow: var(--shadow-lg);
   padding: 8px 18px calc(18px + env(safe-area-inset-bottom));
   transform: translateY(105%); transition: transform .32s cubic-bezier(.25,1.1,.4,1);
+  overscroll-behavior: contain;
 }
 .sheet.show { transform: translateY(0); }
 .grab { width: 40px; height: 5px; border-radius: 3px; background: var(--border); margin: 2px auto 12px; }
@@ -400,6 +411,34 @@ textarea.field { resize: vertical; min-height: 84px; }
 .alarm-actions .btn { width: 100%; }
 .alarm-snooze { display: flex; gap: 8px; }
 .alarm-snooze .btn { flex: 1; padding-left: 6px; padding-right: 6px; white-space: nowrap; }
+
+/* ---------- Launch splash ---------- */
+.splash {
+  position: fixed; inset: 0; z-index: 100; display: flex; flex-direction: column;
+  align-items: center; justify-content: center; gap: 14px;
+  background: var(--hero); color: var(--hero-text); transition: opacity .4s ease;
+}
+.splash.gone { opacity: 0; pointer-events: none; }
+.splash .logo-big {
+  width: 84px; height: 84px; border-radius: 50%; display: grid; place-items: center;
+  background: rgba(255,255,255,.95); color: #ff6384; font-size: 44px; font-weight: 900;
+  animation: splash-pop .6s cubic-bezier(.25,1.4,.4,1) both;
+}
+html[data-theme="dark"] .splash .logo-big { color: #b05cc0; }
+.splash .name { font-size: 26px; font-weight: 850; letter-spacing: .2px; animation: splash-in .6s .15s both; }
+@keyframes splash-pop { from { opacity: 0; transform: scale(.6); } }
+@keyframes splash-in { from { opacity: 0; transform: translateY(6px); } }
+
+/* ---------- New version banner ---------- */
+.update-bar {
+  position: fixed; left: 14px; right: 14px; top: calc(10px + env(safe-area-inset-top)); z-index: 45;
+  max-width: 532px; margin: 0 auto; display: flex; align-items: center; gap: 12px;
+  padding: 10px 10px 10px 16px; border-radius: 16px;
+  background: var(--card); color: var(--text); box-shadow: var(--shadow-lg);
+  font-weight: 650; font-size: 14.5px;
+}
+.update-bar span { flex: 1; }
+.update-bar .btn { flex: none; }
 
 @media (min-width: 600px) {
   .app { padding-top: 20px; }
