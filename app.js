@@ -1099,7 +1099,7 @@
           if (a === 'testsound') {
             unlockAudio.skipDance = true; unlockAudio(); unlockAudio.skipDance = false;
             // we're inside a tap, so play for real right away; that also unlocks the element
-            if (chimeEl) { useChime(); chimeEl.muted = false; chimeReady = true; chimeEl.currentTime = 0; var pp = chimeEl.play(); if (pp && pp.catch) pp.catch(webChime); } else webChime();
+            if (webMode) { chime(); } else if (chimeEl) { useChime(); chimeEl.muted = false; chimeReady = true; chimeEl.currentTime = 0; var pp = chimeEl.play(); if (pp && pp.catch) pp.catch(webChime); } else webChime();
             say('If you heard nothing, turn the volume up 🔊'); closeSheet(); return; }
           closeSheet();
           setTimeout(function () {
@@ -1342,6 +1342,8 @@
   // After the sound is over, empty the element so iOS removes the "Now Playing" card from the lock screen.
   // (The element stays "unlocked", so the next alarm can still play it.)
   var releaseTimer = null;
+  // iOS 17+ lets a page choose how its audio behaves; with 'playback' Web Audio plays even with the silent switch on.
+  var webMode = (function () { try { return !!(navigator.audioSession && (window.AudioContext || window.webkitAudioContext)); } catch (e) { return false; } })();
   function releaseChime() {
     clearTimeout(releaseTimer);
     releaseTimer = setTimeout(function () {
@@ -1358,6 +1360,25 @@
   }
   function unlockAudio() {
     try { if (navigator.audioSession) navigator.audioSession.type = 'playback'; } catch (e) {}
+    if (webMode) {
+      // Web Audio only: no <audio> element, so iOS shows no "Now Playing" card on the lock screen.
+      try {
+        var AC0 = window.AudioContext || window.webkitAudioContext;
+        if (AC0) {
+          if (!audio) audio = new AC0();
+          if (audio.state !== 'running') {
+            audio.resume().then(function () {
+              if (needSound && alarmShowing && audio.state === 'running') {
+                needSound = false; var h0 = document.getElementById('alarmHint'); if (h0) h0.hidden = true; webChime();
+              }
+            }, function () {});
+          } else if (needSound && alarmShowing) {
+            needSound = false; var h1 = document.getElementById('alarmHint'); if (h1) h1.hidden = true; webChime();
+          }
+        }
+      } catch (e) {}
+      return;
+    }
     try {
       if (!chimeEl) newChimeEl();
       if (needSound && alarmShowing && !unlockAudio.skipDance) {
@@ -1397,6 +1418,14 @@
   ['pointerdown', 'touchend', 'click', 'keydown'].forEach(function (ev) { document.addEventListener(ev, unlockAudio, { passive: true }); });
 
   function chime() {
+    if (webMode) {
+      try {
+        if (!audio) audio = new (window.AudioContext || window.webkitAudioContext)();
+        if (audio.state === 'running') webChime();
+        else audio.resume().then(function () { if (audio.state === 'running') webChime(); }, function () {});
+      } catch (e) {}
+      return;
+    }
     if (!chimeEl) { try { newChimeEl(); } catch (e) {} }
     clearTimeout(releaseTimer);
     if (chimeEl && chimeReady) {
