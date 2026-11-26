@@ -1,6 +1,6 @@
 ﻿// Daily Joy service worker: caches the app so it opens with no internet.
 // Bump VERSION whenever you change a file so phones pick up the new copy.
-var VERSION = 'dailyjoy-v21';
+var VERSION = 'dailyjoy-v22';
 // Push server address. Must match PUSH_SERVER in app.js. Leave '' until the Worker is deployed.
 var PUSH_SERVER = 'https://dailyjoy-push.asser1811.workers.dev';
 var FILES = ['./', 'index.html', 'styles.css', 'app.js', 'manifest.webmanifest',
