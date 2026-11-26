@@ -25,8 +25,44 @@
 </script>
 </head>
 <body>
-<div id="splash" class="splash" aria-hidden="true"><div class="logo-big">✓</div><div class="name">Daily Joy</div></div>
-<script>setTimeout(function () { var s = document.getElementById('splash'); if (s) s.remove(); }, 4000);</script>
+<div id="splash" class="splash" aria-hidden="true">
+  <div class="sp-bubbles"><i></i><i></i><i></i><i></i><i></i><i></i></div>
+  <div class="sp-float">
+    <span style="--x:8%;--d:.1s;--r:-25deg">✨</span><span style="--x:24%;--d:.5s;--r:20deg">🎈</span>
+    <span style="--x:42%;--d:.25s;--r:-15deg">⭐</span><span style="--x:60%;--d:.65s;--r:25deg">🌈</span>
+    <span style="--x:76%;--d:.15s;--r:-20deg">💖</span><span style="--x:90%;--d:.45s;--r:15deg">🎉</span>
+  </div>
+  <div class="sp-center">
+    <div class="sp-logo">
+      <div class="sp-burst">
+        <i style="--a:0deg;--c:#fff"></i><i style="--a:36deg;--c:#ffe066"></i><i style="--a:72deg;--c:#7cf3c8"></i>
+        <i style="--a:108deg;--c:#9ad8ff"></i><i style="--a:144deg;--c:#ffd1e8"></i><i style="--a:180deg;--c:#fff"></i>
+        <i style="--a:216deg;--c:#ffe066"></i><i style="--a:252deg;--c:#7cf3c8"></i><i style="--a:288deg;--c:#9ad8ff"></i>
+        <i style="--a:324deg;--c:#ffd1e8"></i>
+      </div>
+      <svg viewBox="-10 -10 120 120">
+        <circle class="sp-ring" cx="50" cy="50" r="54"/>
+        <circle class="sp-disc" cx="50" cy="50" r="44"/>
+        <path class="sp-check" d="M30 52 l14 14 l27 -30"/>
+      </svg>
+    </div>
+    <div class="sp-name"><span style="--i:0">D</span><span style="--i:1">a</span><span style="--i:2">i</span><span style="--i:3">l</span><span style="--i:4">y</span><span class="sp-gap"></span><span style="--i:6">J</span><span style="--i:7">o</span><span style="--i:8">y</span></div>
+    <div class="sp-tag" id="spTag">Let’s make today awesome ✨</div>
+  </div>
+</div>
+<script>
+  // A greeting that fits the time of day, then a safety net in case app.js never loads.
+  (function () {
+    var h = new Date().getHours(), lines;
+    if (h < 5) lines = ['Night owl mode 🦉', 'Small steps, big joy 🌙'];
+    else if (h < 12) lines = ['Rise and shine! ☀️', 'Good morning, superstar 🌟', 'Fresh day, fresh wins 🌱'];
+    else if (h < 17) lines = ['Keep the good vibes going 🌤', 'You’re on a roll! 🚀', 'Halfway to awesome 💪'];
+    else if (h < 21) lines = ['Let’s finish strong 🌆', 'Evening wins count too ✨'];
+    else lines = ['Winding down with a smile 🌙', 'Small steps, big joy 💖'];
+    var el = document.getElementById('spTag'); if (el) el.textContent = lines[Math.floor(Math.random() * lines.length)];
+    setTimeout(function () { var s = document.getElementById('splash'); if (s) s.remove(); }, 5000);
+  })();
+</script>
 <div class="app" id="app">
   <header class="hero">
     <div class="topbar">

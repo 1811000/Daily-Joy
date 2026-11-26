@@ -417,21 +417,67 @@ textarea.field { resize: vertical; min-height: 84px; }
 .alarm-snooze .btn { flex: 1; padding-left: 6px; padding-right: 6px; white-space: nowrap; }
 
 /* ---------- Launch splash ---------- */
+/* Every animation starts FROM a hidden state and ends on the normal style, so with reduced motion it simply shows. */
 .splash {
-  position: fixed; inset: 0; z-index: 100; display: flex; flex-direction: column;
-  align-items: center; justify-content: center; gap: 14px;
-  background: var(--hero); color: var(--hero-text); transition: opacity .4s ease;
+  position: fixed; inset: 0; z-index: 100; overflow: hidden;
+  display: flex; align-items: center; justify-content: center;
+  background: var(--hero); color: var(--hero-text); transition: opacity .45s ease;
 }
 .splash.gone { opacity: 0; pointer-events: none; }
-.splash .logo-big {
-  width: 84px; height: 84px; border-radius: 50%; display: grid; place-items: center;
-  background: rgba(255,255,255,.95); color: #ff6384; font-size: 44px; font-weight: 900;
-  animation: splash-pop .6s cubic-bezier(.25,1.4,.4,1) both;
+.sp-center { position: relative; display: flex; flex-direction: column; align-items: center; transition: transform .45s cubic-bezier(.5,0,.7,.4); }
+.splash.gone .sp-center { transform: scale(1.18); }
+
+/* soft bubbles drifting in the background */
+.sp-bubbles i { position: absolute; border-radius: 50%; background: rgba(255,255,255,.13); animation: sp-bob 3.2s ease-in-out infinite alternate; }
+.sp-bubbles i:nth-child(1) { width: 240px; height: 240px; top: -70px; left: -90px; }
+.sp-bubbles i:nth-child(2) { width: 150px; height: 150px; top: 14%; right: -50px; animation-delay: -.8s; }
+.sp-bubbles i:nth-child(3) { width: 90px; height: 90px; top: 32%; left: 12%; animation-delay: -1.6s; background: rgba(255,255,255,.09); }
+.sp-bubbles i:nth-child(4) { width: 300px; height: 300px; bottom: -120px; right: -100px; animation-delay: -2.2s; }
+.sp-bubbles i:nth-child(5) { width: 60px; height: 60px; bottom: 22%; left: 18%; animation-delay: -.4s; }
+.sp-bubbles i:nth-child(6) { width: 120px; height: 120px; bottom: 6%; left: -40px; animation-delay: -1.2s; background: rgba(255,255,255,.08); }
+@keyframes sp-bob { to { transform: translate(14px, -22px) scale(1.06); } }
+
+/* little emoji floating up */
+.sp-float span { position: absolute; bottom: -44px; left: var(--x); font-size: 26px; opacity: 0; animation: sp-up 2.6s var(--d) ease-in both; }
+@keyframes sp-up {
+  0% { opacity: 0; transform: translateY(0) rotate(0); }
+  15% { opacity: .95; }
+  100% { opacity: 0; transform: translateY(-78vh) rotate(var(--r)); }
 }
-html[data-theme="dark"] .splash .logo-big { color: #b05cc0; }
-.splash .name { font-size: 26px; font-weight: 850; letter-spacing: .2px; animation: splash-in .6s .15s both; }
-@keyframes splash-pop { from { opacity: 0; transform: scale(.6); } }
-@keyframes splash-in { from { opacity: 0; transform: translateY(6px); } }
+
+/* the logo: pops in, ring and tick draw themselves, a jelly wobble, then confetti bursts out */
+.sp-logo { position: relative; width: 128px; height: 128px; animation: sp-pop .65s cubic-bezier(.3,1.7,.5,1) both; }
+.sp-logo svg { width: 100%; height: 100%; overflow: visible; animation: sp-jelly .6s .9s ease; filter: drop-shadow(0 12px 26px rgba(60,10,30,.25)); }
+.sp-disc { fill: #fff; }
+.sp-ring { fill: none; stroke: rgba(255,255,255,.75); stroke-width: 3.5; stroke-linecap: round; stroke-dasharray: 340;
+  transform: rotate(-90deg); transform-origin: 50px 50px; animation: sp-ring .9s .1s ease-out both; }
+.sp-check { fill: none; stroke: #ff6384; stroke-width: 10; stroke-linecap: round; stroke-linejoin: round; stroke-dasharray: 62;
+  animation: sp-tick .42s .55s cubic-bezier(.6,0,.35,1) both; }
+html[data-theme="dark"] .sp-check { stroke: #b05cc0; }
+@keyframes sp-pop { from { opacity: 0; transform: scale(.3) rotate(-25deg); } }
+@keyframes sp-ring { from { stroke-dashoffset: 340; } }
+@keyframes sp-tick { from { stroke-dashoffset: 62; } }
+@keyframes sp-jelly { 30% { transform: scale(1.14, .88); } 50% { transform: scale(.92, 1.08); } 70% { transform: scale(1.04, .97); } }
+
+.sp-burst i {
+  position: absolute; left: 50%; top: 50%; width: 11px; height: 11px; margin: -5.5px; border-radius: 50%;
+  background: var(--c); opacity: 0; transform: rotate(var(--a)) translateY(-108px) scale(.3);
+  animation: sp-burst .85s .9s cubic-bezier(.15,.8,.3,1) both;
+}
+.sp-burst i:nth-child(even) { border-radius: 3px; width: 8px; height: 14px; margin: -7px -4px; }
+@keyframes sp-burst {
+  0% { opacity: 1; transform: rotate(var(--a)) translateY(-44px) scale(1); }
+  70% { opacity: 1; }
+  100% { opacity: 0; transform: rotate(var(--a)) translateY(-108px) scale(.3); }
+}
+
+/* the name, letter by letter, in a bouncy wave */
+.sp-name { margin-top: 22px; font-size: 38px; font-weight: 900; letter-spacing: .5px; text-shadow: 0 4px 18px rgba(60,10,30,.22); white-space: nowrap; }
+.sp-name span { display: inline-block; animation: sp-letter .55s calc(.65s + var(--i) * .055s) cubic-bezier(.3,1.8,.5,1) both; }
+.sp-name .sp-gap { width: .3em; animation: none; }
+@keyframes sp-letter { from { opacity: 0; transform: translateY(26px) scale(.4) rotate(-12deg); } }
+.sp-tag { margin-top: 8px; font-size: 16.5px; font-weight: 700; opacity: .95; animation: sp-rise .5s 1.2s ease both; }
+@keyframes sp-rise { from { opacity: 0; transform: translateY(10px); } }
 
 /* ---------- New version banner ---------- */
 .update-bar {

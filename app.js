@@ -1545,10 +1545,18 @@
   // keep the browser chrome colour in step with the theme on first load
   (function () { var m = document.querySelector('meta[name="theme-color"]'); if (m && document.documentElement.dataset.theme === 'dark') m.setAttribute('content', '#3a2160'); })();
 
-  // Launch splash: fade it away once the first screen is drawn.
+  // Launch splash: let the little show play (about 1.9 s from launch), then zoom it away. A tap skips it.
   (function () {
     var sp = $('splash'); if (!sp) return;
-    setTimeout(function () { sp.classList.add('gone'); setTimeout(function () { sp.remove(); }, 450); }, 700);
+    var gone = false;
+    function hide() {
+      if (gone) return; gone = true;
+      sp.classList.add('gone'); setTimeout(function () { sp.remove(); }, 480);
+    }
+    var since = (window.performance && performance.now) ? performance.now() : 0;
+    setTimeout(hide, reduced() ? 400 : Math.max(300, 1900 - since));
+    sp.addEventListener('click', hide);
+    sp.addEventListener('touchstart', hide, { passive: true });
   })();
 
   fillRepeats();
