@@ -936,7 +936,7 @@
       $('wNext').onclick = function () {
         if (step === 0) {
           var v = cleanName($('wName').value);
-          if (v) { try { localStorage.setItem(NAME, v); } catch (e) {} }
+          if (v) { try { localStorage.setItem(NAME, v); } catch (e) {} render(); }
           step = 1; paint(s); return;
         }
         if (last) { closeSheet(); say((myName() ? 'You’re all set, ' + myName() : 'You’re all set') + '! 🎉'); render(); return; }
