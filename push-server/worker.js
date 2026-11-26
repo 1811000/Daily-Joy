@@ -6,10 +6,14 @@
 //   POST /unsubscribe  the phone turns alerts off
 //   GET  /add?c=CODE&t=TEXT   Siri/Shortcuts leaves a task in your inbox
 //   POST /pull         the app collects the tasks waiting in its inbox
+//   POST /parse        "Smart add": turns one sentence into tasks with Claude (optional)
 //   every minute (cron) it sends an empty "ping" to the phone when a reminder is due
 //
 // Needs: a KV namespace bound as DJ, a secret VAPID_JWK (made by make-keys.html),
 // a variable VAPID_SUBJECT (mailto:your-email), and a cron trigger "* * * * *".
+// Optional, for Smart add: either an AI binding named AI (Cloudflare's own AI, no outside account),
+// or a secret ANTHROPIC_API_KEY for Claude (and, if you like, a variable SMART_MODEL).
+// With neither, /parse answers "not set up" and the app quietly uses its built-in parser.
 
 const CORS = {
   'Access-Control-Allow-Origin': '*',
@@ -30,6 +34,7 @@ export default {
 
     let body;
     try { body = await request.json(); } catch (e) { return reply({ error: 'Bad JSON' }, 400); }
+    if (url.pathname === '/parse') return parseTasks(body, env, request);
     if (url.pathname === '/pull') return inboxPull(body, env);
     if (url.pathname === '/sync') return sync(body, env);
     if (url.pathname === '/due') return due(body, env);
@@ -96,6 +101,195 @@ async function inboxPull(body, env) {
   const list = (await env.DJ.get(key, 'json')) || [];
   if (list.length) await env.DJ.delete(key);
   return reply({ items: list });
+}
+
+// ---------- Smart add: one sentence in, a list of tasks out ----------
+// The Anthropic key lives only here, as a Worker secret. Each phone gets a daily allowance (kept in KV).
+const SMART_DAILY_LIMIT = 60;
+const TASK_SCHEMA = {
+  type: 'object',
+  properties: {
+    tasks: {
+      type: 'array',
+      items: {
+        type: 'object',
+        properties: {
+          title: { type: 'string' },
+          date: { type: 'string' },
+          time: { type: 'string' },
+          category: { type: 'string', enum: ['general', 'work', 'home', 'health', 'shopping', 'learning', 'fun'] },
+          priority: { type: 'string', enum: ['low', 'normal', 'high'] },
+          repeat: { type: 'string', enum: ['', 'daily', 'weekdays', 'weekly', 'monthly'] }
+        },
+        required: ['title', 'date', 'time', 'category', 'priority', 'repeat'],
+        additionalProperties: false
+      }
+    }
+  },
+  required: ['tasks'],
+  additionalProperties: false
+};
+const SMART_RULES = [
+  'You turn one spoken or typed sentence into a to-do list for a personal planner app.',
+  'The sentence may hold one task or several. Return every task as its own item, in the order said.',
+  'Use the person\'s own language for "title". Sentence case: capitalise only the first word and proper names, never every word. Keep names capitalised as the person wrote them (Omar, Sara, Hana). Keep the key detail (what, who, where), for example "Email the boss about the report", not "Email". Drop only filler like "remind me to", "I want you to", "and then", "maybe".',
+  '"date" is YYYY-MM-DD, worked out from the current date and weekday given by the user. A weekday name alone means its next occurrence (never today unless said "today"). If no day is said for a task, or the day is vague ("some day", "sometime", "one day"), use "" (empty).',
+  'A day or time said once can apply to the tasks that follow it when the sentence clearly groups them (for example "tomorrow gym at 6pm and call mom at 8" means both are tomorrow). A time belongs only to the task in the same clause: in "buy bread at 10 and call mom", mom gets no time. Never copy a time to a task that has none.',
+  '"time" is 24-hour HH:MM. When the person gives a clock time with no am/pm (like "6:30" or "at 6") and the task is for today (or no day is said), pick the NEXT moment the clock will show that time after the current time: at 17:30, "6:30" means 18:30; at 08:00, "6:30" means 18:30 (the 06:30 has passed); at 05:00, "6:30" means 06:30; at 23:00, "7" means 07:00 tomorrow, so set date to tomorrow. When the task is for a later day with no am/pm, 1 to 6 means afternoon or evening ("tomorrow at 6:20" is 18:20, "Monday at 3" is 15:00) and 7 to 11 means morning, unless the sentence says otherwise. An explicit am/pm, "morning", "evening" or "tonight" always wins. For social or leisure events (cinema, movie, dinner, party, drinks, concert), a bare hour from 1 to 11 with no am/pm means evening: "cinema at 7" is 19:00. "morning" 09:00, "afternoon" 14:00, "evening" 18:00, "tonight" 20:00. If no time is said, use "". Never invent a time.',
+  '"category" is one of general, work, home, health, shopping, learning, fun. Pick the best fit, or general.',
+  '"priority" is normal unless the person says urgent/important/asap (high) or no rush/whenever (low).',
+  '"repeat" is "" unless they say every day / daily (daily), weekdays (weekdays), every week / every Monday (weekly), every month (monthly). For a weekly repeat on a named day, set "date" to that day\'s next occurrence.',
+  'Never merge unrelated tasks and never split one task in two ("salt and pepper" is one item).',
+  'When one activity is said at several times ("calls at 9, 11 and 1"), make one task per time, and put the time in each title, for example "Client call at 9", "Client call at 11", "Client call at 1".',
+  'If the sentence holds no task at all, return an empty list.'
+].join('\n');
+
+async function parseTasks(body, env, request) {
+  if (!env.ANTHROPIC_API_KEY && !env.AI) return reply({ error: 'not_set_up' }, 503);
+  const text = String(body.text || '').replace(/\s+/g, ' ').trim().slice(0, 600);
+  if (!text) return reply({ error: 'No text' }, 400);
+
+  // Daily allowance per phone (its private code), or per network address when there is no code.
+  const who = goodCode(body.code) ? String(body.code) : 'ip-' + (request.headers.get('CF-Connecting-IP') || 'unknown');
+  const day = new Date().toISOString().slice(0, 10);
+  const rlKey = 'rl:' + who + ':' + day;
+  const used = parseInt(await env.DJ.get(rlKey), 10) || 0;
+  if (used >= SMART_DAILY_LIMIT) return reply({ error: 'limit' }, 429);
+  await env.DJ.put(rlKey, String(used + 1), { expirationTtl: 2 * 86400 });
+
+  const now = String(body.now || '').slice(0, 40), weekday = String(body.weekday || '').slice(0, 12), tz = String(body.tz || '').slice(0, 60);
+  const question = 'Current local date and time: ' + now + ' (' + weekday + '), time zone ' + tz + '.\n\nDates for the next week (use these for weekday names):\n' + upcomingDays(now) + '\n\nSentence:\n' + text;
+  // Claude when its key is set (best quality); otherwise Cloudflare's own AI, which needs no outside account.
+  const data = env.ANTHROPIC_API_KEY ? await askClaude(env, question) : await askWorkersAI(env, question);
+  if (!data || data.error) return reply({ error: (data && data.error) || 'bad_output' }, (data && data.status) || 502);
+
+  const out = (Array.isArray(data.tasks) ? data.tasks : []).slice(0, 12).map(function (t) {
+    return {
+      title: String(t.title || '').trim().slice(0, 200),
+      date: /^\d{4}-\d{2}-\d{2}$/.test(t.date) ? t.date : '',
+      time: /^([01]\d|2[0-3]):[0-5]\d$/.test(t.time) ? t.time : '',
+      category: ['general', 'work', 'home', 'health', 'shopping', 'learning', 'fun'].indexOf(t.category) >= 0 ? t.category : 'general',
+      priority: ['low', 'normal', 'high'].indexOf(t.priority) >= 0 ? t.priority : 'normal',
+      repeat: ['daily', 'weekdays', 'weekly', 'monthly'].indexOf(t.repeat) >= 0 ? t.repeat : ''
+    };
+  }).filter(function (t) { return t.title; });
+  out.forEach(function (t) { t.title = t.title.charAt(0).toUpperCase() + t.title.slice(1); });
+  fixNames(out, text);
+  fixClockTimes(out, text, now);
+  return reply({ tasks: out });
+}
+
+// The AI sometimes lowercases a name ("Meet omar"). A word the person wrote with a capital letter in the middle
+// of the sentence (a name, a weekday) keeps that capital in the titles. The first word of a sentence is skipped.
+function fixNames(tasks, text) {
+  const caps = {};
+  const re = /[A-Za-zÀ-ɏ]+/g;
+  let m;
+  while ((m = re.exec(text))) {
+    const w = m[0];
+    if (w.length < 2 || w[0] !== w[0].toUpperCase() || w[0] === w[0].toLowerCase()) continue;
+    if (m.index === 0 || /[.!?]\s*$/.test(text.slice(0, m.index))) continue;
+    caps[w.toLowerCase()] = w;
+  }
+  tasks.forEach(function (t) {
+    t.title = t.title.replace(re, function (w) { return Object.prototype.hasOwnProperty.call(caps, w.toLowerCase()) ? caps[w.toLowerCase()] : w; });
+  });
+}
+
+// Plain clock times ("6:30", "at 3") with no am/pm or part of the day are settled here in code, not by the AI:
+// for today it is the NEXT time the clock shows it, for a later day 1-6 is afternoon/evening and 7-11 is morning.
+// If the sentence says am/pm/morning/evening/etc. we trust the AI's reading.
+function fixClockTimes(tasks, text, now) {
+  const m = /^(\d{4})-(\d{2})-(\d{2})[ T](\d{2}):(\d{2})/.exec(now);
+  if (!m) return;
+  if (/\d\s*(a\.?m\.?|p\.?m\.?)(?![a-z])|\b(morning|noon|afternoon|evening|tonight|midnight)\b/i.test(text)) return;
+  if (/\b[01]\d:[0-5]\d\b|\b2[0-3]:[0-5]\d\b/.test(text)) return;   // typed in 24-hour style, like 08:00 or 18:30
+  const today = m[1] + '-' + m[2] + '-' + m[3], nowMin = +m[4] * 60 + +m[5];
+  tasks.forEach(function (t) {
+    if (!t.time) return;
+    let h = +t.time.slice(0, 2);
+    const mi = +t.time.slice(3);
+    // The AI may have already turned "6:30" into 18:30. If the sentence only says 6 (not 18), go back to the 12-hour reading.
+    if (h >= 13 && h <= 18 && new RegExp('(^|[^\\d])' + (h - 12) + '(?!\\d)').test(text) && !new RegExp('(^|[^\\d])' + h + '(?!\\d)').test(text)) h -= 12;
+    // Social plans (cinema, dinner, party...) at a bare hour are evening plans: "cinema at 7" is 19:00.
+    if (/\b(cinema|movie|dinner|party|concert|drinks|date|wedding|game)\b/i.test(t.title) && h >= 1 && h <= 11) {
+      t.time = ('0' + (h + 12)).slice(-2) + ':' + ('0' + mi).slice(-2);
+      return;
+    }
+    if (h < 1 || h > 11) return;   // 12 and 13+ are left alone; only 1 to 11 can mean two times of day
+    const date = t.date || today;
+    let hour = h;
+    if (date === today) {
+      if (h * 60 + mi > nowMin) hour = h;                          // the morning one is still ahead
+      else if ((h + 12) * 60 + mi > nowMin) hour = h + 12;         // the evening one is still ahead
+      else { hour = h; t.date = addDays(today, 1); }               // both passed: tomorrow morning
+    } else if (h <= 6 && !t.repeat) hour = h + 12;   // a repeating routine at 6:30 ("weekdays at 6:30") is a morning one
+    t.time = ('0' + hour).slice(-2) + ':' + ('0' + mi).slice(-2);
+  });
+}
+function addDays(ymd, n) {
+  const p = ymd.split('-');
+  return new Date(Date.UTC(+p[0], +p[1] - 1, +p[2]) + n * DAY).toISOString().slice(0, 10);
+}
+
+// Lists today and the next 7 days with their weekday names, so the model looks dates up instead of counting.
+function upcomingDays(now) {
+  const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(now);
+  if (!m) return '(unknown)';
+  const base = Date.UTC(+m[1], +m[2] - 1, +m[3]);
+  const names = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+  const lines = [];
+  for (let i = 0; i < 8; i++) {
+    const d = new Date(base + i * DAY);
+    const label = i === 0 ? ' (today)' : i === 1 ? ' (tomorrow)' : '';
+    lines.push(names[d.getUTCDay()] + ' ' + d.toISOString().slice(0, 10) + label);
+  }
+  return lines.join('\n');
+}
+
+// Claude (Opus 5.5 unless SMART_MODEL says otherwise). Returns the parsed object, or { error, status }.
+async function askClaude(env, question) {
+  const ctrl = new AbortController();
+  const timer = setTimeout(function () { ctrl.abort(); }, 25000);
+  let res;
+  try {
+    res = await fetch('https://api.anthropic.com/v1/messages', {
+      method: 'POST',
+      signal: ctrl.signal,
+      headers: { 'x-api-key': env.ANTHROPIC_API_KEY, 'anthropic-version': '2023-06-01', 'content-type': 'application/json' },
+      body: JSON.stringify({
+        model: env.SMART_MODEL || 'claude-opus-5-5',
+        max_tokens: 4000,
+        system: SMART_RULES,
+        output_config: { effort: 'low', format: { type: 'json_schema', schema: TASK_SCHEMA } },
+        messages: [{ role: 'user', content: question }]
+      })
+    });
+  } catch (e) {
+    return { error: 'upstream_timeout', status: 504 };
+  } finally { clearTimeout(timer); }
+  if (!res.ok) return { error: 'upstream_' + res.status, status: 502 };
+
+  let msg;
+  try { msg = await res.json(); } catch (e) { return { error: 'bad_upstream', status: 502 }; }
+  if (msg.stop_reason === 'refusal' || msg.stop_reason === 'max_tokens') return { error: 'unusable', status: 502 };
+  const block = (msg.content || []).filter(function (b) { return b.type === 'text'; })[0];
+  try { return JSON.parse(block.text); } catch (e) { return { error: 'bad_output', status: 502 }; }
+}
+
+// Cloudflare Workers AI (needs an AI binding named AI). Its JSON mode returns the parsed object under "response".
+async function askWorkersAI(env, question) {
+  let out;
+  try {
+    out = await env.AI.run(env.AI_MODEL || '@cf/meta/llama-3.3-70b-instruct-fp8-fast', {
+      messages: [{ role: 'system', content: SMART_RULES }, { role: 'user', content: question }],
+      response_format: { type: 'json_schema', json_schema: TASK_SCHEMA },
+      max_tokens: 1500
+    });
+  } catch (e) { return { error: 'upstream_ai', status: 502 }; }
+  const data = out && out.response;
+  if (data && typeof data === 'object') return data;
+  try { return JSON.parse(String(data || '')); } catch (e) { return { error: 'bad_output', status: 502 }; }
 }
 
 async function unsubscribe(body, env) {

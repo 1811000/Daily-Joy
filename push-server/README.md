@@ -55,3 +55,28 @@ You need: a free Cloudflare account, and the iPhone app installed on the Home Sc
 
 ## Update for v26 (Siri inbox)
 The worker gained two small endpoints (/add and /pull) for 'Hey Siri, add to Daily Joy'. Paste the new worker.js into Cloudflare (Edit code) and Deploy. Nothing else changes; your keys and KV stay.
+
+## Update for v26p (Smart add with AI)
+The worker gained `/parse`, which turns one sentence ("Tomorrow gym at 6pm, call mom after that and buy milk Friday morning") into separate tasks. The app shows them for you to confirm before saving.
+
+It can use either of two AI engines. Pick one:
+
+**Option A: Cloudflare's own AI (no outside account, no key)**
+1. Paste the new `worker.js` into Cloudflare (**Edit code**) and **Deploy**.
+2. On the Worker: **Settings > Bindings > Add > Workers AI**. Variable name: `AI`. Save and deploy.
+3. Optional: a **Text** variable `AI_MODEL` to choose another model (default `@cf/meta/llama-3.3-70b-instruct-fp8-fast`).
+4. Check the usage in the Cloudflare dashboard. Workers AI includes a free daily allowance, and paid use is billed by Cloudflare.
+
+**Option B: Claude (higher quality, needs an Anthropic API key)**
+1. Make an API key at https://console.anthropic.com (**API Keys > Create Key**). Copy it once; it is shown only once.
+2. On the Worker: **Settings > Variables and Secrets > Add**, Type **Secret**, name `ANTHROPIC_API_KEY`, value = the key. Save and deploy.
+3. Optional: a **Text** variable `SMART_MODEL` to use a different Claude model (default `claude-opus-5-5`).
+4. In the Anthropic console, set a monthly spend limit so costs can never surprise you.
+
+If both are set, Claude is used. If neither is set, `/parse` answers "not set up" and the app silently uses its built-in parser.
+
+Notes:
+- Keys and bindings live only in Cloudflare. They are never in the app or on GitHub.
+- Each phone may use Smart add up to 60 times a day (change `SMART_DAILY_LIMIT` in `worker.js`).
+- Only the sentence itself, the phone's date, weekday and time zone are sent. Nothing is stored except a daily counter.
+- Smart add can also be turned off in the app menu.
