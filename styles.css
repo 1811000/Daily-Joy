@@ -524,6 +524,9 @@ html[data-theme="dark"] .sp-check { stroke: #b05cc0; }
 }
 .update-bar span { flex: 1; }
 .update-bar .btn { flex: none; }
+.offline-bar { z-index: 46; font-weight: 600; font-size: 14px; line-height: 1.35; border: 1.5px solid var(--accent); animation: off-in .25s ease both; }
+.offline-bar b { font-weight: 800; }
+@keyframes off-in { from { opacity: 0; transform: translateY(-10px); } }
 
 @media (min-width: 600px) {
   .app { padding-top: 20px; }

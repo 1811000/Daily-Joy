@@ -2131,6 +2131,22 @@
     $('hintClose').onclick = function () { $('installHint').hidden = true; try { localStorage.setItem(HINT, '1'); } catch (e) {} };
   })();
 
+  // No-connection notice: shown only when the phone has no network at all (no Wi-Fi and no cellular).
+  (function () {
+    var bar = $('offlineBar');
+    if (!bar) return;
+    function check() {
+      if (navigator.onLine === false) { if (!bar.dataset.closed) bar.hidden = false; }
+      else { bar.hidden = true; delete bar.dataset.closed; }
+    }
+    $('offlineClose').onclick = function () { bar.hidden = true; bar.dataset.closed = '1'; };
+    window.addEventListener('offline', check);
+    window.addEventListener('online', check);
+    window.addEventListener('pageshow', check);
+    document.addEventListener('visibilitychange', function () { if (!document.hidden) check(); });
+    check();
+  })();
+
   // Offline support
   if ('serviceWorker' in navigator && (location.protocol === 'https:' || location.hostname === 'localhost' || location.hostname === '127.0.0.1')) {
     // A new version takes over while this page is open; this page's code is still the old one until it reloads.
