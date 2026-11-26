@@ -623,6 +623,12 @@
   // Falls back to the built-in parser above when it's off, offline, not set up, or anything goes wrong.
   var SMART = 'dailyjoy.smart', smartDown = false, smartBusy = false;
   function smartOn() { return lsGet(SMART) !== '0'; }
+  // Open (not done, not repeating) tasks, nearest first: the AI may say "I will pick up mom at 6" and change one of them.
+  function openForSmart() {
+    return tasks.filter(function (t) { return !t.Done && !t.Series; })
+      .sort(function (a, b) { var ka = a.Date + ' ' + (a.Time || '99:99'), kb = b.Date + ' ' + (b.Time || '99:99'); return ka < kb ? -1 : ka > kb ? 1 : 0; })
+      .slice(0, 30).map(function (t) { return { id: t.Id, title: t.Title, date: t.Date, time: t.Time }; });
+  }
   function smartAdd(text, typed) {
     text = String(text || '').replace(/\s+/g, ' ').trim();
     if (!text) return;
@@ -644,7 +650,7 @@
     fetch(PUSH_SERVER + '/parse', {
       method: 'POST', headers: { 'Content-Type': 'application/json' }, signal: ctrl ? ctrl.signal : undefined,
       body: JSON.stringify({
-        text: text, code: inboxCode(), now: key(n) + ' ' + pad(n.getHours()) + ':' + pad(n.getMinutes()), weekday: WDL[n.getDay()],
+        text: text, code: inboxCode(), open: openForSmart(), now: key(n) + ' ' + pad(n.getHours()) + ':' + pad(n.getMinutes()), weekday: WDL[n.getDay()],
         tz: (function () { try { return Intl.DateTimeFormat().resolvedOptions().timeZone || ''; } catch (e) { return ''; } })()
       })
     }).then(function (r) {
@@ -661,9 +667,11 @@
   }
   function smartSheet(list, text, typed, snap) {
     var saved = false, items = list.slice();
+    function isEdit(t) { var o = t.editOf ? find(t.editOf) : null; return !!(o && !o.Series); }
     function meta(t) {
       var bits = [];
-      var d = t.date ? parseKey(t.date) : snap.day;
+      var o = isEdit(t) ? find(t.editOf) : null;
+      var d = t.date ? parseKey(t.date) : o ? parseKey(o.Date) : snap.day;
       var w = friendly(d); bits.push('📅 ' + w.charAt(0).toUpperCase() + w.slice(1));
       var tm = t.time || snap.time; if (tm) bits.push('🕒 ' + timeDisp(tm));
       var c = t.category !== 'general' ? t.category : snap.cat;
@@ -676,11 +684,11 @@
       var html = '<h2>✨ Smart add</h2><p class="muted">Here’s what I understood. Tap ✕ to drop one.</p><div class="opts" id="saList">';
       items.forEach(function (t, i) {
         html += '<div class="opt sa-row"><span class="sa-sw" style="background:' + cat(t.category !== 'general' ? t.category : snap.cat).color + '"></span>' +
-          '<span class="sa-txt"><b>' + esc(t.title) + '</b><small>' + esc(meta(t)) + '</small></span>' +
+          '<span class="sa-txt"><b>' + (isEdit(t) ? '✏️ Update: ' : '') + esc(t.title) + '</b><small>' + esc(meta(t)) + '</small></span>' +
           '<button type="button" class="sa-x" data-i="' + i + '" aria-label="Remove">✕</button></div>';
       });
       html += '</div><div class="sheet-actions"><button type="button" class="btn soft" id="saCancel">Cancel</button>' +
-        '<button type="button" class="btn primary" id="saOk">' + (items.length ? 'Add ' + (items.length === 1 ? 'task' : items.length + ' tasks') : 'Nothing to add') + '</button></div>';
+        '<button type="button" class="btn primary" id="saOk">' + (!items.length ? 'Nothing to add' : items.some(isEdit) ? 'Save' : 'Add ' + (items.length === 1 ? 'task' : items.length + ' tasks')) + '</button></div>';
       return html;
     }
     function wire() {
@@ -692,21 +700,34 @@
       $('saOk').onclick = function () {
         if (!items.length) { closeSheet(); return; }
         saved = true;
-        var added = [];
+        var added = [], updated = [];
         items.forEach(function (t) {
           var d = t.date ? parseKey(t.date) : snap.day;
           var rule = t.repeat || snap.rep || '';
           var p = t.priority === 'high' ? 2 : t.priority === 'low' ? 0 : snap.prio;
           var c = t.category !== 'general' ? t.category : snap.cat;
+          var old = t.editOf ? find(t.editOf) : null;
+          if (old && !old.Series) {
+            // An edit: change the existing task, keeping whatever the sentence did not mention.
+            old.Title = t.title;
+            if (t.date) old.Date = t.date;
+            if (t.time) old.Time = t.time;
+            if (t.priority === 'high') old.Priority = 2; else if (t.priority === 'low') old.Priority = 0;
+            if (t.category !== 'general') old.Category = t.category;
+            updated.push(t.title);
+            return;
+          }
           createTask(t.title, d, t.time || snap.time, rule, p, c);
           added.push(t.title);
         });
+        save();
         newRepeat = ''; newTime = '';
         if (filter === 'done') filter = 'all';
         if (catFilter) catFilter = null;
         closeSheet(); render();
         sparkle(typed ? document.querySelector('.add-btn') : $('micBtn'), 14);
-        var msg = added.length === 1 ? 'Added ' + added[0] + '.' : 'Added ' + added.length + ' tasks: ' + added.join(', ') + '.';
+        var msg = added.length === 0 ? '' : added.length === 1 ? 'Added ' + added[0] + '.' : 'Added ' + added.length + ' tasks: ' + added.join(', ') + '.';
+        if (updated.length) msg += (msg ? ' ' : '') + 'Updated ' + updated.join(', ') + '.';
         say(msg + ' ✅');
         if (!typed) speak(msg);
       };
