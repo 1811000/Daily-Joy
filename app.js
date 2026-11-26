@@ -1424,15 +1424,15 @@
     'Way ahead of the clock 🕰️',
     'Who needs reminders anyway? 💪'
   ];
-  var ALREADY_DONE = [
-    'Already done! ✅ Go enjoy the win',
-    'You already crushed this one 💪',
-    'Easy, overachiever! 🏆 This one’s finished',
-    'Déjà vu! 🔁 Already ticked off',
-    'Done and dusted ✨ Nothing left to do here',
-    'Back off, it’s already done! 😄',
-    'Been there, done that 😎',
-    'This one’s in the bag 🎒 Tap the circle if you want it back'
+  var BACK_TO_TODO = [
+    'Back on the list! ↩️',
+    'Round two! 🔁',
+    'Plot twist, it’s not over 🎬',
+    'Back in the game 🎮',
+    'Unfinished business 🕵️',
+    'Second helping coming up 🍽️',
+    'Rewound! ⏪',
+    'Okay, one more time 💪'
   ];
   var lastSwipe = 0;
   function moveOneDay(id) {
@@ -1463,7 +1463,8 @@
       dx = Math.max(-150, Math.min(150, ddx));
       card.style.transition = 'none';
       card.style.transform = 'translateX(' + dx + 'px)';
-      card.dataset.swipe = Math.abs(dx) < LIMIT ? 'hint' : (dx > 0 ? 'move' : 'done');
+      var isDone = card.classList.contains('done');
+      card.dataset.swipe = Math.abs(dx) < LIMIT ? 'hint' : (dx > 0 ? 'move' : (isDone ? 'undo' : 'done'));
     }, { passive: true });
     function end() {
       var c = card; card = null;
@@ -1473,7 +1474,7 @@
       if (Math.abs(dx) < LIMIT) { reset(c); return; }
       if (dx < 0) {
         var tk = find(id), wait = tk && !tk.Done ? minutesUntil(tk) : 0;
-        if (tk && tk.Done) { reset(c); c.classList.remove('nope'); void c.offsetWidth; c.classList.add('nope'); setTimeout(function () { c.classList.remove('nope'); }, 600); say(pick(ALREADY_DONE)); if (navigator.vibrate) navigator.vibrate(20); }
+        if (tk && tk.Done) { reset(c); toggle(id, c); say(pick(BACK_TO_TODO)); }   // swipe a finished task back onto the to-do list
         else {
           reset(c); toggle(id, c);
           // finished before its time: cheer the early bird (unless the whole day is done; that has its own party)
