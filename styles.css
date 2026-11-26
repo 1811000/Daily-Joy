@@ -379,6 +379,15 @@ textarea.field { resize: vertical; min-height: 84px; }
 .row { display: flex; gap: 8px; align-items: center; }
 .row > * { flex: 1; }
 .sheet-actions { display: flex; gap: 8px; margin-top: 20px; }
+/* First-run welcome: progress dots and step cards */
+.wdots { display: flex; justify-content: center; gap: 6px; margin: 0 0 14px; }
+.wdots i { width: 7px; height: 7px; border-radius: 50%; background: var(--border); }
+.wdots i.on { background: var(--accent, #ff6f7d); width: 20px; border-radius: 4px; }
+.wcard { text-align: center; padding: 6px 4px 0; }
+.wcard .wemoji { font-size: 46px; line-height: 1; margin-bottom: 10px; }
+.wcard h2 { margin-bottom: 8px; }
+.wcard p { margin: 0; color: var(--sub); line-height: 1.5; font-size: 15px; }
+.sheet .field + .muted { margin-top: 10px; }
 .sheet-actions .btn { flex: 1; }
 .sheet-actions .btn.danger { flex: 0 0 auto; }
 .muted { color: var(--sub); font-size: 13.5px; }

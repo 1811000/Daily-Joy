@@ -904,6 +904,54 @@
     });
   }
 
+  // A name is plain text: no tags, no control characters, at most 30 letters.
+  function cleanName(v) { return String(v || '').replace(/[\u0000-\u001f<>]/g, '').trim().slice(0, 30); }
+
+  // First-run welcome: asks for a name, then a short tour. Shown once; "Welcome tour" in Options shows it again.
+  var WELCOMED = 'dailyjoy.welcomed';
+  var TOUR = [
+    ['✨', 'Add tasks in seconds', 'Type in the box, or tap 🎤 and say it. Try <i>“Gym at 6pm tomorrow”</i>. Dates and times are understood, and one sentence can hold several tasks: <i>“gym and call mom”</i>.'],
+    ['👆', 'Swipe and tap', 'Swipe a task <b>right</b> to finish it ✅ and <b>left</b> to move it to tomorrow. Tap a task to change its time, notes, repeat or category.'],
+    ['⏰', 'Reminders', 'Give a task a time and Daily Joy rings when it’s due. Turn on <b>Alerts when closed</b> in ••• Options so reminders still arrive with the app closed. <b>🔔 Keep reminding</b> (needs a time) repeats the alert until you finish.'],
+    ['🧭', 'Explore the rest', 'Tap <b>•••</b> for Options: morning briefing, evening wrap-up, weekly recap, Siri, voice language and backups. You can see this tour again from Options.']
+  ];
+  function welcomeSheet() {
+    var step = 0, cur = myName();
+    try { localStorage.setItem(WELCOMED, '1'); } catch (e) {}
+    function paint(s) {
+      var dots = '<div class="wdots" aria-hidden="true">' + Array.apply(null, Array(TOUR.length + 1)).map(function (x, i) {
+        return '<i' + (i === step ? ' class="on"' : '') + '></i>';
+      }).join('') + '</div>';
+      var last = step === TOUR.length, body, buttons;
+      if (step === 0) {
+        body = '<h2>👋 Welcome to Daily Joy!</h2><p class="muted">Let’s make your days a little brighter. What should I call you?</p>' +
+          '<input class="field" type="text" id="wName" maxlength="30" autocomplete="given-name" placeholder="Your name" value="' + esc(cur) + '" aria-label="Your name">';
+        buttons = '<button type="button" class="btn ghost" id="wSkip">Skip</button><button type="button" class="btn primary" id="wNext">Next</button>';
+      } else {
+        var t = TOUR[step - 1];
+        body = '<div class="wcard"><div class="wemoji" aria-hidden="true">' + t[0] + '</div><h2>' + t[1] + '</h2><p>' + t[2] + '</p></div>';
+        buttons = '<button type="button" class="btn soft" id="wBack">Back</button><button type="button" class="btn primary" id="wNext">' + (last ? 'Let’s go 🎉' : 'Next') + '</button>';
+      }
+      s.innerHTML = '<div class="grab"></div>' + dots + body + '<div class="sheet-actions">' + buttons + '</div>';
+      $('wNext').onclick = function () {
+        if (step === 0) {
+          var v = cleanName($('wName').value);
+          if (v) { try { localStorage.setItem(NAME, v); } catch (e) {} }
+          step = 1; paint(s); return;
+        }
+        if (last) { closeSheet(); say((myName() ? 'You’re all set, ' + myName() : 'You’re all set') + '! 🎉'); render(); return; }
+        step++; paint(s);
+      };
+      if (step === 0) {
+        $('wSkip').onclick = function () { closeSheet(); };
+        $('wName').onkeydown = function (e) { if (e.key === 'Enter') { e.preventDefault(); $('wNext').onclick(); } };
+      } else {
+        $('wBack').onclick = function () { step--; paint(s); };
+      }
+    }
+    openSheet('', paint);
+  }
+
   // Options > Your name: shown in the greeting ("Good morning, Asser"). Saved only on this phone.
   function nameSheet() {
     var html = '<h2>👋 Your name</h2>' +
@@ -1030,6 +1078,7 @@
       ['siri', '🗣️', 'Hey Siri, add a task', 'Set up'],
       ['testsound', '🔊', 'Test alarm sound', 'Plays a chime'],
       ['name', '👋', 'Your name', myName() || 'Not set'],
+      ['tour', '🧭', 'Welcome tour', 'See the basics'],
       ['lang', '🎙️', 'Voice language',(LANGS.filter(function (l) { return l[0] === (function () { try { return localStorage.getItem(LANG) || ''; } catch (e) { return ''; } })(); })[0] || LANGS[0])[1]],
       ['theme', dark ? '☀️' : '🌙', dark ? 'Light theme' : 'Dark theme', ''],
       ['auto', '🌗', 'Match phone theme', savedTheme() ? 'Off' : 'On'],
@@ -1069,6 +1118,7 @@
             else if (a === 'export') exportTasks();
             else if (a === 'lang') langSheet();
             else if (a === 'name') nameSheet();
+            else if (a === 'tour') welcomeSheet();
             else if (a === 'brief' || a === 'wrap') timeSheet(a);
             else if (a === 'recap') recapSheet();
             else if (a === 'siri') siriSheet();
@@ -1579,6 +1629,11 @@
   // Shown when the app is opened (for example by tapping the evening notification), never over something else.
   function autoPrompts() {
     if (alarmShowing || !$('sheet').hidden || !$('alarm').hidden || $('splash')) return;
+    // Someone who already uses the app (has tasks or a name) never sees the first-run welcome.
+    if (!lsGet(WELCOMED)) {
+      if (tasks.length || myName()) lsSet(WELCOMED, '1');
+      else { welcomeSheet(); return; }
+    }
     if (wrapDue()) { wrapSheet(); return; }
     var mon = recapDue();
     if (mon && weekStats(mon).total) { lsSet(RECAPSHOWN, key(mon)); recapSheet(mon); }
