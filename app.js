@@ -1339,15 +1339,32 @@
   }
   // Make sure the element holds the real chime (the unlock step swaps in silence for a moment).
   function useChime() { if (chimeEl && chimeUrl && chimeEl.src !== chimeUrl) { chimeEl.src = chimeUrl; } }
+  // After the sound is over, empty the element so iOS removes the "Now Playing" card from the lock screen.
+  // (The element stays "unlocked", so the next alarm can still play it.)
+  var releaseTimer = null;
+  function releaseChime() {
+    clearTimeout(releaseTimer);
+    releaseTimer = setTimeout(function () {
+      if (!chimeEl || !chimeEl.paused) return;
+      try { chimeEl.removeAttribute('src'); chimeEl.load(); } catch (e) {}
+      try { if (navigator.mediaSession) { navigator.mediaSession.metadata = null; navigator.mediaSession.playbackState = 'none'; } } catch (e) {}
+    }, 400);
+  }
+  function rewind() { try { chimeEl.currentTime = 0; } catch (e) {} }
+  function newChimeEl() {
+    chimeUrl = makeChimeUrl(); chimeEl = new Audio(chimeUrl); chimeEl.preload = 'auto';
+    chimeEl.addEventListener('ended', releaseChime);
+    chimeEl.addEventListener('pause', releaseChime);
+  }
   function unlockAudio() {
     try { if (navigator.audioSession) navigator.audioSession.type = 'playback'; } catch (e) {}
     try {
-      if (!chimeEl) { chimeUrl = makeChimeUrl(); chimeEl = new Audio(chimeUrl); chimeEl.preload = 'auto'; }
+      if (!chimeEl) newChimeEl();
       if (needSound && alarmShowing && !unlockAudio.skipDance) {
         // The app was opened by tapping a notification, so no touch happened yet and the alarm was silent.
         // Play the REAL chime right here, inside the touch itself (iOS only allows sound from a touch).
         useChime(); chimeEl.muted = false;
-        try { chimeEl.currentTime = 0; } catch (e) {}
+        rewind();
         // Mark as ready at once so the touch's other events (touchend, click) don't swap in the silent clip mid-chime.
         needSound = false; chimeReady = true; unlocking = false;
         var h = document.getElementById('alarmHint'); if (h) h.hidden = true;
@@ -1361,7 +1378,7 @@
         var finish = function (ok) {
           unlocking = false;
           if (ok) chimeReady = true;
-          if (chimeEl.src === silentUrl) { chimeEl.pause(); chimeEl.src = chimeUrl; }
+          if (chimeEl.src === silentUrl) { chimeEl.pause(); chimeEl.src = chimeUrl; releaseChime(); }
           // The app was opened from a notification: no tap happened yet, so the alarm was silent. Ring now.
           if (ok && needSound) { needSound = false; var h = document.getElementById('alarmHint'); if (h) h.hidden = true; if (alarmShowing) chime(); }
         };
@@ -1380,12 +1397,13 @@
   ['pointerdown', 'touchend', 'click', 'keydown'].forEach(function (ev) { document.addEventListener(ev, unlockAudio, { passive: true }); });
 
   function chime() {
-    if (!chimeEl) { try { chimeUrl = makeChimeUrl(); chimeEl = new Audio(chimeUrl); chimeEl.preload = 'auto'; } catch (e) {} }
+    if (!chimeEl) { try { newChimeEl(); } catch (e) {} }
+    clearTimeout(releaseTimer);
     if (chimeEl && chimeReady) {
-      try { useChime(); chimeEl.muted = false; chimeEl.currentTime = 0; var p = chimeEl.play(); if (p && p.catch) p.catch(webChime); return; } catch (e) {}
+      try { useChime(); chimeEl.muted = false; rewind(); var p = chimeEl.play(); if (p && p.catch) p.catch(webChime); return; } catch (e) {}
     }
     // Not unlocked yet (e.g. opened from a notification): still try the real chime, then the backup beep.
-    try { if (chimeEl) { useChime(); chimeEl.muted = false; chimeEl.currentTime = 0; var p2 = chimeEl.play(); if (p2 && p2.catch) p2.catch(webChime); return; } } catch (e) {}
+    try { if (chimeEl) { useChime(); chimeEl.muted = false; rewind(); var p2 = chimeEl.play(); if (p2 && p2.catch) p2.catch(webChime); return; } } catch (e) {}
     webChime();
   }
   function webChime() {
