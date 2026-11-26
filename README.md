@@ -17,6 +17,7 @@ A free to-do app and reminder that installs on your iPhone Home Screen. No App S
 ## What it does
 
 - **Add tasks the easy way.** Type or speak naturally: *"Gym at 6pm tomorrow"*. You can even say several tasks in one sentence.
+- **Smart add (AI).** Say or type a whole sentence like *"Tomorrow gym at 6pm, call mom after that and buy milk Friday morning"*. An AI splits it into separate tasks with the right days and times, and you confirm them before they are saved. Optional, and it falls back to the built-in parser when it is off or offline.
 - **Swipe to act.** Swipe right to finish a task. Swipe left to move it to tomorrow.
 - **Tap a task to edit it.** Change the time, add notes, make it repeat, or pick a category.
 - **Reminders and alarms.** An alarm card with a chime appears when a task is due.
@@ -78,7 +79,7 @@ The server code is in [`push-server/`](push-server/). Follow [push-server/README
 
 ## Good to know
 
-- **Privacy:** tasks are stored on your phone only. If you turn on alerts, the server sees just the reminder titles and times for your own phone, and nothing else.
+- **Privacy:** tasks are stored on your phone only. If you turn on alerts, the server sees just the reminder titles and times for your own phone, and nothing else. With Smart add on, the sentence you add is sent through the server to an AI model to be understood, and is not stored. You can turn Smart add off in the menu.
 - **iPhone limits:** iOS does not allow buttons inside notifications, widgets, or vibration from web apps. Sounds play only after you have touched the screen.
 - **Updates:** when a new version is published, the app shows "A new version is ready". Tap it to update. Your tasks stay.
 - **Moving to a new phone:** use Menu > Export tasks, then Import tasks on the new phone.
@@ -95,12 +96,12 @@ sw.js                 service worker (offline, updates, push)
 manifest.webmanifest  install info
 icons/                app icons
 cal.html              calendar share helper
-push-server/          optional Cloudflare Worker for closed-app alerts
+push-server/          optional Cloudflare Worker for closed-app alerts, Siri inbox and Smart add
 docs/                 install guide pictures and PDF
 ```
 
 - **Publishing:** upload the app files to the repo root. GitHub Pages serves them at https://1811000.github.io/Daily-Joy/.
-- **Releasing an update:** change `VERSION` in `sw.js` (for example `dailyjoy-v26n` to `dailyjoy-v26o`) so phones pick up the new copy.
+- **Releasing an update:** change `VERSION` in `sw.js` (for example `dailyjoy-v26o` to `dailyjoy-v26p`) so phones pick up the new copy.
 - **Test locally:** serve the folder with any static server and open it in a browser. Service workers need `localhost` or HTTPS.
 
 ---
