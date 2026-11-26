@@ -1290,9 +1290,12 @@
   ['pointerdown', 'touchend', 'click', 'keydown'].forEach(function (ev) { document.addEventListener(ev, unlockAudio, { passive: true }); });
 
   function chime() {
+    if (!chimeEl) { try { chimeUrl = makeChimeUrl(); chimeEl = new Audio(chimeUrl); chimeEl.preload = 'auto'; } catch (e) {} }
     if (chimeEl && chimeReady) {
       try { useChime(); chimeEl.muted = false; chimeEl.currentTime = 0; var p = chimeEl.play(); if (p && p.catch) p.catch(webChime); return; } catch (e) {}
     }
+    // Not unlocked yet (e.g. opened from a notification): still try the real chime, then the backup beep.
+    try { if (chimeEl) { useChime(); chimeEl.muted = false; chimeEl.currentTime = 0; var p2 = chimeEl.play(); if (p2 && p2.catch) p2.catch(webChime); return; } } catch (e) {}
     webChime();
   }
   function webChime() {
@@ -1334,9 +1337,7 @@
       '<div class="alarm-actions"><button type="button" class="btn primary" data-a="done">✅ Done</button>' +
       '<div class="alarm-snooze"><button type="button" class="btn soft" data-a="s10">💤 +10 min</button>' +
       '<button type="button" class="btn soft" data-a="s60">⏳ +1 hour</button>' +
-      '<button type="button" class="btn soft" data-a="eve">🌇 This evening</button>' +
-      '<button type="button" class="btn soft" data-a="tom">🌅 Tomorrow morning</button></div>' +
-      '<div class="alarm-hint" id="alarmHint"' + (chimeReady ? ' hidden' : '') + '>🔊 Touch the screen to hear the chime</div>' +
+      '</div>' +
       (nagging(t) ? '<div class="alarm-nag">🔔 Keeps reminding you until it’s done</div>' : '') +
       '<button type="button" class="btn ghost" data-a="dismiss">Dismiss</button></div></div>';
     box.hidden = false;
@@ -1345,7 +1346,8 @@
     needSound = !chimeReady;
     if (nagging(t)) snoozed[t.Id] = Date.now() + 7 * 60000;   // unless answered, ask again in 7 minutes
     ringAlarm(); stopRinging();
-    chimeTimer = setInterval(function () { if (++rings > 12) stopRinging(); else ringAlarm(); }, 4000);
+    // Rings every 4 seconds until you pick an option (no time limit).
+    chimeTimer = setInterval(ringAlarm, 4000);
     box.querySelectorAll('button').forEach(function (b) {
       b.onclick = function () {
         var a = b.dataset.a;
@@ -1360,16 +1362,6 @@
             if (nw.getTime() <= Date.now()) nw = new Date(Date.now() + mins * 60000);
             rescheduleTask(t.Id, nw, 'Moved to ' + timeDisp(pad(nw.getHours()) + ':' + pad(nw.getMinutes())) + ' 💤');
           } else snoozed[t.Id] = Date.now() + mins * 60000;
-        }
-        else if (a === 'eve') {
-          var when = new Date();
-          if (when.getHours() < 18) when.setHours(18, 0, 0, 0);
-          else when = new Date(when.getTime() + 2 * 3600000);
-          rescheduleTask(t.Id, when, 'Moved to ' + timeDisp(pad(when.getHours()) + ':' + pad(when.getMinutes())) + ' 🌇');
-        }
-        else if (a === 'tom') {
-          var tm = addDays(today(), 1); tm.setHours(9, 0, 0, 0);
-          rescheduleTask(t.Id, tm, 'Moved to tomorrow morning 🌅');
         }
         else if (a === 'dismiss' && nagging(t)) {
           snoozed[t.Id] = Date.now() + 7 * 60000;
