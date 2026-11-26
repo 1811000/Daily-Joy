@@ -119,16 +119,21 @@
     monthly:  { name: 'Monthly',  say: 'every month',   sub: 'Same date each month', ahead: 100 }
   };
   var REPEAT_KEYS = ['daily', 'weekdays', 'weekly', 'monthly'];
+  function validDate(s) {
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(s || '')) return false;
+    var p = s.split('-'), d = new Date(+p[0], +p[1] - 1, +p[2]);
+    return d.getFullYear() === +p[0] && d.getMonth() === +p[1] - 1 && d.getDate() === +p[2];
+  }
   function normalize(t) {
     var sid = t.Series ? String(t.Series) : '';
     return {
       Series: sid,
       Repeat: sid && REPEAT[t.Repeat] ? t.Repeat : '',
-      Id: t.Id || newId(),
-      Title: String(t.Title || '').trim() || 'Untitled',
-      Notes: t.Notes || '',
-      Date: /^\d{4}-\d{2}-\d{2}$/.test(t.Date) ? t.Date : key(today()),
-      Time: /^\d{2}:\d{2}$/.test(t.Time || '') ? t.Time : '',
+      Id: (t.Id && /^[A-Za-z0-9_-]{1,64}$/.test(String(t.Id))) ? String(t.Id) : newId(),   // only safe characters: it goes into the page markup
+      Title: String(t.Title || '').trim().slice(0, 200) || 'Untitled',
+      Notes: String(t.Notes || '').slice(0, 5000),
+      Date: validDate(t.Date) ? t.Date : key(today()),
+      Time: /^([01]\d|2[0-3]):[0-5]\d$/.test(t.Time || '') ? t.Time : '',
       Priority: [0, 1, 2].indexOf(+t.Priority) >= 0 ? +t.Priority : 1,
       Done: !!t.Done,
       Created: +t.Created || nowTicks(),
@@ -302,7 +307,7 @@
     e.hidden = visible > 0;
     if (!visible) {
       var em;
-      if (!total) em = ['🌈', 'A fresh, empty day!', 'Type a task above and press Enter ✨'];
+      if (!total) em = ['🌤️', 'A fresh, empty day!', 'Type a task above and press Enter ✨'];
       else if (filter === 'todo' && !sTodo.length && !catFilter) em = ['🎉', 'Nothing left to do!', 'Everything here is done. Treat yourself 🍦'];
       else if (filter === 'done' && !sDone.length && !catFilter) em = ['💪', 'Nothing finished yet', 'You’ve got this. Pick one small task to start!'];
       else em = ['🔍', 'Nothing here', 'Try another filter'];
@@ -365,7 +370,7 @@
     var box = $('cats');
     if (used.length < 2 && !catFilter) { box.hidden = true; box.innerHTML = ''; return; }
     box.hidden = false;
-    var html = '<button type="button" class="pill' + (!catFilter ? ' on' : '') + '" data-c="">🌈 All</button>';
+    var html = '<button type="button" class="pill' + (!catFilter ? ' on' : '') + '" data-c="">🗂️ All</button>';
     used.forEach(function (c) {
       html += '<button type="button" class="pill' + (catFilter === c.key ? ' on' : '') + '" data-c="' + c.key + '" style="--pc:' + c.color + '">' +
         c.emoji + ' ' + c.name + ' <span class="c">' + (counts[c.key] || 0) + '</span></button>';
@@ -564,7 +569,8 @@
     return WDL[d.getDay()] + ', ' + MON[d.getMonth()] + ' ' + d.getDate();
   }
   // One sentence can hold several tasks: "gym at 6pm then call mom tomorrow at noon".
-  var SPLIT_RX = /\s+(?:and then|and also|and remind me to|and remember to|and don'?t forget to|and|then|also|next task|another task|another reminder|new task|new reminder)\s+/i;
+  // A bare "and" only splits when a task verb follows ("gym at 6pm and call mom"), so "salt and pepper" stays one task.
+  var SPLIT_RX = /\s+(?:and then|and also|and remind me to|and remember to|and don'?t forget to|then|also|next task|another task|another reminder|new task|new reminder)\s+|\s+and(?=\s+(?:call|text|message|email|e-mail|buy|get|pick|pay|send|book|check|clean|do|finish|write|read|study|walk|go|meet|take|make|cook|wash|feed|water|renew|cancel|order|submit|remind|remember|visit|fix|print|drop|return|practi[cs]e|review|prepare|plan|schedule|watch|wake|sign|update|upload|brush|shower|stretch|sleep|tidy|vacuum|mop|bring|collect|register|apply|reply|answer|pack)\b)\s+/i;
   function addByVoice(text, typed) {
     text = text.replace(/[“”"«»]/g, '').replace(/\s*[,;]+\s*/g, ' ').replace(/\s+/g, ' ').trim();   // dictation adds commas: "6pm, then, call mom"
     var parts = text.split(SPLIT_RX).map(function (x) { return x.trim(); }).filter(Boolean);
@@ -775,15 +781,21 @@
         data = JSON.parse(text);
         if (!Array.isArray(data)) throw new Error('not a list');
       } catch (e) { say('That file doesn’t look like a task list 🤔'); return; }
-      var added = 0, updated = 0;
+      var added = 0, updated = 0, skipped = 0;
       var undo = withUndo('', function () {
         data.forEach(function (raw) {
           if (!raw || typeof raw !== 'object') return;
+          var hadId = !!(raw.Id && /^[A-Za-z0-9_-]{1,64}$/.test(String(raw.Id)));
           var t = normalize(raw), cur = find(t.Id);
+          // No usable Id (older or hand-made backup): a task with the same title, day and time counts as the same one.
+          if (!cur && !hadId) {
+            var same = tasks.filter(function (x) { return x.Title === t.Title && x.Date === t.Date && x.Time === t.Time; })[0];
+            if (same) { skipped++; return; }
+          }
           if (cur) { Object.assign(cur, t); updated++; } else { tasks.push(t); added++; }
         });
       });
-      say('Imported: ' + added + ' new, ' + updated + ' updated 📥', undo);
+      say('Imported: ' + added + ' new, ' + updated + ' updated' + (skipped ? ', ' + skipped + ' already there' : '') + ' 📥', undo);
     };
     r.readAsText(file);
   }
