@@ -617,7 +617,6 @@
       msg = 'Added ' + added.length + ' tasks: ' + added.map(function (a) { return a.p.title; }).join(', ') + '.';
     }
     say(msg + ' ✅');
-    if (!typed) speak(msg);
   }
   // ---- Smart add: Claude (through the Worker) turns one sentence into tasks; you confirm them before they are saved ----
   // Falls back to the built-in parser above when it's off, offline, not set up, or anything goes wrong.
@@ -729,7 +728,6 @@
         var msg = added.length === 0 ? '' : added.length === 1 ? 'Added ' + added[0] + '.' : 'Added ' + added.length + ' tasks: ' + added.join(', ') + '.';
         if (updated.length) msg += (msg ? ' ' : '') + 'Updated ' + updated.join(', ') + '.';
         say(msg + ' ✅');
-        if (!typed) speak(msg);
       };
     }
     sheetClose = function () { if (!saved && typed) { var inp = $('newTitle'); if (!inp.value) inp.value = text; } };   // cancelled: put the typed sentence back
