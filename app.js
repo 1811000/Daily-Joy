@@ -398,7 +398,7 @@
     var input = $('newTitle'), text = input.value.trim();
     if (!text) { input.focus(); return; }
     input.value = '';
-    addByVoice(text, true);          // same smart parser as voice: dates, priority, several tasks at once
+    smartAdd(text, true);            // AI when it's on and reachable, otherwise the built-in parser (dates, priority, several tasks)
     newTime = '';
   }
   // Adds a task (and, when a repeat is chosen, starts its series and creates the coming ones).
@@ -619,6 +619,101 @@
     say(msg + ' ✅');
     if (!typed) speak(msg);
   }
+  // ---- Smart add: Claude (through the Worker) turns one sentence into tasks; you confirm them before they are saved ----
+  // Falls back to the built-in parser above when it's off, offline, not set up, or anything goes wrong.
+  var SMART = 'dailyjoy.smart', smartDown = false, smartBusy = false;
+  function smartOn() { return lsGet(SMART) !== '0'; }
+  function smartAdd(text, typed) {
+    text = String(text || '').replace(/\s+/g, ' ').trim();
+    if (!text) return;
+    if (!smartOn() || smartDown || !PUSH_SERVER || navigator.onLine === false || text.length < 4 || smartBusy) { addByVoice(text, typed); return; }
+    var snap = { cat: newCat, prio: newPrio, time: newTime, rep: newRepeat, day: view };
+    var toast = $('toast');
+    function fallback(msg) {
+      toast.classList.remove('show'); smartBusy = false;
+      newCat = snap.cat; newPrio = snap.prio; newTime = snap.time; newRepeat = snap.rep;
+      addByVoice(text, typed);
+      newTime = '';
+      if (msg) setTimeout(function () { say(msg); }, 1800);
+    }
+    smartBusy = true;
+    toast.innerHTML = '<span>✨ Understanding that…</span>'; toast.classList.add('show'); clearTimeout(toastTimer);
+    var ctrl = window.AbortController ? new AbortController() : null;
+    var timer = setTimeout(function () { if (ctrl) ctrl.abort(); }, 20000);
+    var n = new Date();
+    fetch(PUSH_SERVER + '/parse', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, signal: ctrl ? ctrl.signal : undefined,
+      body: JSON.stringify({
+        text: text, code: inboxCode(), now: key(n) + ' ' + pad(n.getHours()) + ':' + pad(n.getMinutes()), weekday: WDL[n.getDay()],
+        tz: (function () { try { return Intl.DateTimeFormat().resolvedOptions().timeZone || ''; } catch (e) { return ''; } })()
+      })
+    }).then(function (r) {
+      return r.json().catch(function () { return {}; }).then(function (d) { return { status: r.status, d: d }; });
+    }).then(function (x) {
+      clearTimeout(timer);
+      if (x.status === 503) { smartDown = true; fallback(); return; }
+      if (x.status === 429) { fallback('Smart add limit reached for today, used the basic parser'); return; }
+      var list = x.d && x.d.tasks;
+      if (x.status !== 200 || !list || !list.length) { fallback(); return; }
+      smartBusy = false; toast.classList.remove('show');
+      smartSheet(list, text, typed, snap);
+    }).catch(function () { clearTimeout(timer); fallback(); });
+  }
+  function smartSheet(list, text, typed, snap) {
+    var saved = false, items = list.slice();
+    function meta(t) {
+      var bits = [];
+      var d = t.date ? parseKey(t.date) : snap.day;
+      var w = friendly(d); bits.push('📅 ' + w.charAt(0).toUpperCase() + w.slice(1));
+      var tm = t.time || snap.time; if (tm) bits.push('🕒 ' + timeDisp(tm));
+      var c = t.category !== 'general' ? t.category : snap.cat;
+      if (c !== 'general') bits.push(cat(c).emoji + ' ' + cat(c).name);
+      var rp = t.repeat || snap.rep; if (rp && REPEAT[rp]) bits.push('🔁 ' + REPEAT[rp].name);
+      if (t.priority === 'high') bits.push('🔥 High'); else if (t.priority === 'low') bits.push('🌿 Low');
+      return bits.join('  ·  ');
+    }
+    function paint() {
+      var html = '<h2>✨ Smart add</h2><p class="muted">Here’s what I understood. Tap ✕ to drop one.</p><div class="opts" id="saList">';
+      items.forEach(function (t, i) {
+        html += '<div class="opt sa-row"><span class="sa-sw" style="background:' + cat(t.category !== 'general' ? t.category : snap.cat).color + '"></span>' +
+          '<span class="sa-txt"><b>' + esc(t.title) + '</b><small>' + esc(meta(t)) + '</small></span>' +
+          '<button type="button" class="sa-x" data-i="' + i + '" aria-label="Remove">✕</button></div>';
+      });
+      html += '</div><div class="sheet-actions"><button type="button" class="btn soft" id="saCancel">Cancel</button>' +
+        '<button type="button" class="btn primary" id="saOk">' + (items.length ? 'Add ' + (items.length === 1 ? 'task' : items.length + ' tasks') : 'Nothing to add') + '</button></div>';
+      return html;
+    }
+    function wire() {
+      var s = $('sheet');
+      s.querySelectorAll('.sa-x').forEach(function (b) {
+        b.onclick = function () { items.splice(+b.dataset.i, 1); s.innerHTML = '<div class="grab"></div>' + paint(); wire(); };
+      });
+      $('saCancel').onclick = closeSheet;
+      $('saOk').onclick = function () {
+        if (!items.length) { closeSheet(); return; }
+        saved = true;
+        var added = [];
+        items.forEach(function (t) {
+          var d = t.date ? parseKey(t.date) : snap.day;
+          var rule = t.repeat || snap.rep || '';
+          var p = t.priority === 'high' ? 2 : t.priority === 'low' ? 0 : snap.prio;
+          var c = t.category !== 'general' ? t.category : snap.cat;
+          createTask(t.title, d, t.time || snap.time, rule, p, c);
+          added.push(t.title);
+        });
+        newRepeat = ''; newTime = '';
+        if (filter === 'done') filter = 'all';
+        if (catFilter) catFilter = null;
+        closeSheet(); render();
+        sparkle(typed ? document.querySelector('.add-btn') : $('micBtn'), 14);
+        var msg = added.length === 1 ? 'Added ' + added[0] + '.' : 'Added ' + added.length + ' tasks: ' + added.join(', ') + '.';
+        say(msg + ' ✅');
+        if (!typed) speak(msg);
+      };
+    }
+    sheetClose = function () { if (!saved && typed) { var inp = $('newTitle'); if (!inp.value) inp.value = text; } };   // cancelled: put the typed sentence back
+    openSheet(paint(), wire);
+  }
   function setMic(on) {
     var b = $('micBtn');
     b.classList.toggle('listening', on);
@@ -661,7 +756,7 @@
     rec.onend = function () {
       clearTimeout(quiet);
       listening = false; setMic(false);
-      if (full) { input.value = ''; addByVoice(full); }
+      if (full) { input.value = ''; smartAdd(full, false); }
       else input.value = prev;
     };
     listening = true; setMic(true);
@@ -1108,6 +1203,7 @@
       ['brief', '☀️', 'Morning briefing', lsGet(BRIEF) ? timeDisp(lsGet(BRIEF)) : 'Off'],
       ['wrap', '🌙', 'Evening wrap-up', lsGet(WRAP) ? timeDisp(lsGet(WRAP)) : 'Off'],
       ['recap', '📊', 'Weekly recap', 'See your week'],
+      ['smart', '✨', 'Smart add (AI)', smartOn() ? 'On' : 'Off'],
       ['siri', '🗣️', 'Hey Siri, add a task', 'Set up'],
       ['testsound', '🔊', 'Test alarm sound', 'Plays a chime'],
       ['name', '👋', 'Your name', myName() || 'Not set'],
@@ -1122,7 +1218,7 @@
     items.forEach(function (it) {
       html += '<button type="button" class="opt" data-a="' + it[0] + '"><span class="oe">' + it[1] + '</span><span class="ol">' + it[2] + '</span><span class="os">' + it[3] + '</span></button>';
     });
-    html += '</div><p class="muted">Your tasks are saved on this device only. Use Export and Import to move them to another phone or to the Daily Joy PC app (its file is <b>%APPDATA%\\DailyTasks\\tasks.json</b>).</p>';
+    html += '</div><p class="muted">Smart add sends only the sentence you typed or said to the Daily Joy server, which turns it into tasks. Turn it off to use the built-in parser only. Your tasks are saved on this device only. Use Export and Import to move them to another phone or to the Daily Joy PC app (its file is <b>%APPDATA%\\DailyTasks\\tasks.json</b>).</p>';
     openSheet(html, function (s) {
       s.querySelectorAll('.opt').forEach(function (b) {
         b.onclick = function () {
@@ -1155,6 +1251,10 @@
             else if (a === 'brief' || a === 'wrap') timeSheet(a);
             else if (a === 'recap') recapSheet();
             else if (a === 'siri') siriSheet();
+            else if (a === 'smart') {
+              lsSet(SMART, smartOn() ? '0' : '1'); smartDown = false;
+              say(smartOn() ? 'Smart add on ✨ (AI understands whole sentences)' : 'Smart add off · using the built-in parser');
+            }
           }, 350);
         };
       });
