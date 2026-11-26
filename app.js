@@ -626,7 +626,7 @@
   function openForSmart() {
     return tasks.filter(function (t) { return !t.Done && !t.Series; })
       .sort(function (a, b) { var ka = a.Date + ' ' + (a.Time || '99:99'), kb = b.Date + ' ' + (b.Time || '99:99'); return ka < kb ? -1 : ka > kb ? 1 : 0; })
-      .slice(0, 30).map(function (t) { return { id: t.Id, title: t.Title, date: t.Date, time: t.Time }; });
+      .slice(0, 30).map(function (t) { return { id: t.Id, title: t.Title, date: t.Date, time: t.Time, priority: ['low', 'normal', 'high'][t.Priority] || 'normal' }; });
   }
   function smartAdd(text, typed) {
     text = String(text || '').replace(/\s+/g, ' ').trim();
@@ -665,8 +665,11 @@
     }).catch(function () { clearTimeout(timer); fallback(); });
   }
   function smartSheet(list, text, typed, snap) {
-    var saved = false, items = list.slice();
+    var saved = false;
     function isEdit(t) { var o = t.editOf ? find(t.editOf) : null; return !!(o && !o.Series); }
+    function isRemove(t) { return isEdit(t) && t.remove === true; }
+    // A delete that cannot find its task (for example a repeating one) is dropped, never turned into a new task.
+    var items = list.filter(function (t) { return !(t.remove === true && !isEdit(t)); });
     function meta(t) {
       var bits = [];
       var o = isEdit(t) ? find(t.editOf) : null;
@@ -683,7 +686,7 @@
       var html = '<h2>✨ Smart add</h2><p class="muted">Here’s what I understood. Tap ✕ to drop one.</p><div class="opts" id="saList">';
       items.forEach(function (t, i) {
         html += '<div class="opt sa-row"><span class="sa-sw" style="background:' + cat(t.category !== 'general' ? t.category : snap.cat).color + '"></span>' +
-          '<span class="sa-txt"><b>' + (isEdit(t) ? '✏️ Update: ' : '') + esc(t.title) + '</b><small>' + esc(meta(t)) + '</small></span>' +
+          '<span class="sa-txt"><b>' + (isRemove(t) ? '🗑️ Delete: ' : isEdit(t) ? '✏️ Update: ' : '') + esc(t.title) + '</b><small>' + esc(isRemove(t) ? '' : meta(t)) + '</small></span>' +
           '<button type="button" class="sa-x" data-i="' + i + '" aria-label="Remove">✕</button></div>';
       });
       html += '</div><div class="sheet-actions"><button type="button" class="btn soft" id="saCancel">Cancel</button>' +
@@ -699,7 +702,7 @@
       $('saOk').onclick = function () {
         if (!items.length) { closeSheet(); return; }
         saved = true;
-        var added = [], updated = [];
+        var added = [], updated = [], removed = [];
         items.forEach(function (t) {
           var d = t.date ? parseKey(t.date) : snap.day;
           var rule = t.repeat || snap.rep || '';
@@ -707,6 +710,12 @@
           var c = t.category !== 'general' ? t.category : snap.cat;
           var old = t.editOf ? find(t.editOf) : null;
           if (old && !old.Series) {
+            if (t.remove === true) {
+              // A delete: remove the existing task (the sentence said cancel/delete).
+              tasks = tasks.filter(function (x) { return x.Id !== old.Id; });
+              removed.push(old.Title);
+              return;
+            }
             // An edit: change the existing task, keeping whatever the sentence did not mention.
             old.Title = t.title;
             if (t.date) old.Date = t.date;
@@ -727,6 +736,7 @@
         sparkle(typed ? document.querySelector('.add-btn') : $('micBtn'), 14);
         var msg = added.length === 0 ? '' : added.length === 1 ? 'Added ' + added[0] + '.' : 'Added ' + added.length + ' tasks: ' + added.join(', ') + '.';
         if (updated.length) msg += (msg ? ' ' : '') + 'Updated ' + updated.join(', ') + '.';
+        if (removed.length) msg += (msg ? ' ' : '') + 'Deleted ' + removed.join(', ') + '.';
         say(msg + ' ✅');
       };
     }
