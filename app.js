@@ -990,7 +990,7 @@
           if (a === 'testsound') {
             unlockAudio.skipDance = true; unlockAudio(); unlockAudio.skipDance = false;
             // we're inside a tap, so play for real right away; that also unlocks the element
-            if (chimeEl) { chimeEl.muted = false; chimeReady = true; chimeEl.currentTime = 0; var pp = chimeEl.play(); if (pp && pp.catch) pp.catch(webChime); } else webChime();
+            if (chimeEl) { useChime(); chimeEl.muted = false; chimeReady = true; chimeEl.currentTime = 0; var pp = chimeEl.play(); if (pp && pp.catch) pp.catch(webChime); } else webChime();
             say('If you heard nothing, turn the volume up 🔊'); closeSheet(); return; }
           closeSheet();
           setTimeout(function () {
@@ -1201,20 +1201,36 @@
     return URL.createObjectURL(new Blob([buf], { type: 'audio/wav' }));
   }
   // iOS only lets a page make sound after a tap, so unlock audio on the first touch.
+  var chimeUrl = null, silentUrl = null, unlocking = false;
+  function makeSilentUrl() {
+    var rate = 8000, n = 800, buf = new ArrayBuffer(44 + n * 2), v = new DataView(buf);   // 0.1 s of silence
+    function str(o, s) { for (var i = 0; i < s.length; i++) v.setUint8(o + i, s.charCodeAt(i)); }
+    str(0, 'RIFF'); v.setUint32(4, 36 + n * 2, true); str(8, 'WAVE'); str(12, 'fmt ');
+    v.setUint32(16, 16, true); v.setUint16(20, 1, true); v.setUint16(22, 1, true);
+    v.setUint32(24, rate, true); v.setUint32(28, rate * 2, true); v.setUint16(32, 2, true); v.setUint16(34, 16, true);
+    str(36, 'data'); v.setUint32(40, n * 2, true);
+    return URL.createObjectURL(new Blob([buf], { type: 'audio/wav' }));
+  }
+  // Make sure the element holds the real chime (the unlock step swaps in silence for a moment).
+  function useChime() { if (chimeEl && chimeUrl && chimeEl.src !== chimeUrl) { chimeEl.src = chimeUrl; } }
   function unlockAudio() {
     try { if (navigator.audioSession) navigator.audioSession.type = 'playback'; } catch (e) {}
     try {
-      if (!chimeEl) { chimeEl = new Audio(makeChimeUrl()); chimeEl.preload = 'auto'; }
-      if (!chimeReady && !unlockAudio.skipDance) {
-        chimeEl.muted = true;
-        var pr = chimeEl.play();
-        var done = function () {
-          chimeReady = true;
-          if (chimeEl.muted) { chimeEl.pause(); chimeEl.currentTime = 0; chimeEl.muted = false; } // skip if a real chime already took over
+      if (!chimeEl) { chimeUrl = makeChimeUrl(); chimeEl = new Audio(chimeUrl); chimeEl.preload = 'auto'; }
+      if (!chimeReady && !unlocking && !unlockAudio.skipDance) {
+        // Unlock the element by playing SILENCE (not the chime), so nothing audible can leak out.
+        unlocking = true;
+        if (!silentUrl) silentUrl = makeSilentUrl();
+        chimeEl.src = silentUrl;
+        var finish = function (ok) {
+          unlocking = false;
+          if (ok) chimeReady = true;
+          if (chimeEl.src === silentUrl) { chimeEl.pause(); chimeEl.src = chimeUrl; }
         };
-        if (pr && pr.then) pr.then(done, function () {}); else done();
+        var pr = chimeEl.play();
+        if (pr && pr.then) pr.then(function () { finish(true); }, function () { finish(false); }); else finish(true);
       }
-    } catch (e) {}
+    } catch (e) { unlocking = false; }
     try {
       var AC = window.AudioContext || window.webkitAudioContext;
       if (AC) {
@@ -1227,7 +1243,7 @@
 
   function chime() {
     if (chimeEl && chimeReady) {
-      try { chimeEl.muted = false; chimeEl.currentTime = 0; var p = chimeEl.play(); if (p && p.catch) p.catch(webChime); return; } catch (e) {}
+      try { useChime(); chimeEl.muted = false; chimeEl.currentTime = 0; var p = chimeEl.play(); if (p && p.catch) p.catch(webChime); return; } catch (e) {}
     }
     webChime();
   }
