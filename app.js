@@ -337,7 +337,7 @@
     var c = cat(t.Category), p = prio(t.Priority), meta = '';
     var isLate = !t.Done && t.Time && t.Date === key(today()) && t.Time < pad(new Date().getHours()) + ':' + pad(new Date().getMinutes());
     if (topIds[t.Id]) meta += '<span class="tag" style="--tc:#ff6384">📌 Top</span>';
-    if (t.Nag && !t.Done) meta += '<span class="tag" style="--tc:#7a6e8e">🔔 Keeps reminding</span>';
+    if (t.Nag && !t.Done && t.Time) meta += '<span class="tag" style="--tc:#7a6e8e">🔔 Keeps reminding</span>';
     if (t.Time) meta += '<span class="tag" style="--tc:' + (isLate ? '#ef4444' : '#7a6e8e') + '">' + (isLate ? '⏰ ' : '🕒 ') + timeDisp(t.Time) + '</span>';
     if (t.Priority !== 1) meta += '<span class="tag" style="--tc:' + p.color + '">' + p.emoji + ' ' + p.name + '</span>';
     if (t.Repeat) meta += '<span class="tag" style="--tc:#7a6e8e">🔁 ' + REPEAT[t.Repeat].name + '</span>';
