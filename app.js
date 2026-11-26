@@ -236,16 +236,19 @@
     return a.Created - b.Created;
   }
 
+  // The name the user typed in Options (shown in the greeting). Empty = no name.
+  var NAME = 'dailyjoy.name';
+  function myName() { try { return (localStorage.getItem(NAME) || '').trim(); } catch (e) { return ''; } }
   function greeting() {
-    var n = diffDays(view, today());
-    if (n > 0) return '📅 Planning ahead, nice!';
-    if (n < 0) return '🕰 Looking back';
+    var n = diffDays(view, today()), who = myName() ? ', ' + myName() : '';
+    if (n > 0) return '📅 Planning ahead' + who + ', nice!';
+    if (n < 0) return '🕰 Looking back' + (who ? who : '');
     var h = new Date().getHours();
-    if (h < 5) return '🌙 Burning the midnight oil?';
-    if (h < 12) return '☀️ Good morning, sunshine!';
-    if (h < 17) return '🌤 Good afternoon!';
-    if (h < 21) return '🌆 Good evening!';
-    return '🌙 Winding down for the night';
+    if (h < 5) return '🌙 Burning the midnight oil' + who + '?';
+    if (h < 12) return '☀️ Good morning' + (who || ', sunshine') + '!';
+    if (h < 17) return '🌤 Good afternoon' + who + '!';
+    if (h < 21) return '🌆 Good evening' + who + '!';
+    return '🌙 Winding down for the night' + who;
   }
 
   function render() {
@@ -901,6 +904,29 @@
     });
   }
 
+  // Options > Your name: shown in the greeting ("Good morning, Asser"). Saved only on this phone.
+  function nameSheet() {
+    var html = '<h2>👋 Your name</h2>' +
+      '<p class="muted">Shown on the home screen, like “Good morning, Asser”. Leave it empty to hide it.</p>' +
+      '<input class="field" type="text" id="nameIn" maxlength="30" autocomplete="given-name" placeholder="Your name" value="' + esc(myName()) + '" aria-label="Your name">' +
+      '<div class="sheet-actions"><button type="button" class="btn soft" id="nameCancel">Cancel</button>' +
+      '<button type="button" class="btn primary" id="nameSave">Save</button></div>';
+    openSheet(html, function (s) {
+      var inp = $('nameIn');
+      function save() {
+        var v = inp.value.replace(/[\u0000-\u001f<>]/g, '').trim().slice(0, 30);
+        try { if (v) localStorage.setItem(NAME, v); else localStorage.removeItem(NAME); } catch (e) {}
+        closeSheet();
+        say(v ? 'Hi, ' + v + '! 👋' : 'Name removed');
+        render();
+      }
+      $('nameSave').onclick = save;
+      $('nameCancel').onclick = closeSheet;
+      inp.onkeydown = function (e) { if (e.key === 'Enter') { e.preventDefault(); save(); } };
+      setTimeout(function () { inp.focus(); }, 350);
+    });
+  }
+
   function langSheet() {
     var cur = ''; try { cur = localStorage.getItem(LANG) || ''; } catch (e) {}
     var html = '<h2>Voice language</h2><div class="opts">';
@@ -1003,7 +1029,8 @@
       ['recap', '📊', 'Weekly recap', 'See your week'],
       ['siri', '🗣️', 'Hey Siri, add a task', 'Set up'],
       ['testsound', '🔊', 'Test alarm sound', 'Plays a chime'],
-      ['lang', '🎙️', 'Voice language', (LANGS.filter(function (l) { return l[0] === (function () { try { return localStorage.getItem(LANG) || ''; } catch (e) { return ''; } })(); })[0] || LANGS[0])[1]],
+      ['name', '👋', 'Your name', myName() || 'Not set'],
+      ['lang', '🎙️', 'Voice language',(LANGS.filter(function (l) { return l[0] === (function () { try { return localStorage.getItem(LANG) || ''; } catch (e) { return ''; } })(); })[0] || LANGS[0])[1]],
       ['theme', dark ? '☀️' : '🌙', dark ? 'Light theme' : 'Dark theme', ''],
       ['auto', '🌗', 'Match phone theme', savedTheme() ? 'Off' : 'On'],
       ['export', '📦', 'Export tasks', 'Save a .json backup'],
@@ -1041,6 +1068,7 @@
             else if (a === 'auto') { try { localStorage.removeItem(THEME); } catch (e) {} applyTheme(sysDark.matches ? 'dark' : 'light'); }
             else if (a === 'export') exportTasks();
             else if (a === 'lang') langSheet();
+            else if (a === 'name') nameSheet();
             else if (a === 'brief' || a === 'wrap') timeSheet(a);
             else if (a === 'recap') recapSheet();
             else if (a === 'siri') siriSheet();
