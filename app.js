@@ -754,10 +754,13 @@
     openSheet(paint(), wire);
   }
   function setMic(on) {
-    var b = $('micBtn');
-    b.classList.toggle('listening', on);
-    b.setAttribute('aria-label', on ? 'Cancel listening' : 'Add by voice');
-    b.textContent = on ? '✕' : '🎤';
+    // Both mic buttons (the add-box one and the floating one) show the same state.
+    [$('micBtn'), $('fabMic')].forEach(function (b) {
+      if (!b) return;
+      b.classList.toggle('listening', on);
+      b.setAttribute('aria-label', on ? 'Cancel listening' : 'Add by voice');
+      b.textContent = on ? '✕' : '🎤';
+    });
   }
   function voiceAdd() {
     if (!SR) { say('Voice isn’t supported in this browser. Use the 🎤 on your keyboard instead.'); return; }
@@ -1973,6 +1976,7 @@
   // ---------- Wiring ----------
   $('addForm').addEventListener('submit', addTask);
   $('micBtn').onclick = voiceAdd;
+  $('fabMic').onclick = voiceAdd;
   $('catChip').onclick = function () { catSheet(newCat, function (v) { newCat = v; renderAddChips(); }); };
   $('repChip').onclick = function () { repeatSheet(newRepeat, function (v) { newRepeat = v; renderAddChips(); }); };
   $('prioChip').onclick = function () { prioSheet(newPrio, function (v) { newPrio = v; renderAddChips(); }); };
