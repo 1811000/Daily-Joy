@@ -756,14 +756,16 @@
   function setMic(on) {
     var b = $('micBtn');
     b.classList.toggle('listening', on);
-    b.setAttribute('aria-label', on ? 'Stop listening' : 'Add by voice');
-    b.textContent = on ? '⏹' : '🎤';
+    b.setAttribute('aria-label', on ? 'Cancel listening' : 'Add by voice');
+    b.textContent = on ? '✕' : '🎤';
   }
   function voiceAdd() {
     if (!SR) { say('Voice isn’t supported in this browser. Use the 🎤 on your keyboard instead.'); return; }
-    if (listening) { try { rec.stop(); } catch (e) {} return; }
+    // Tapping the mic again while it listens cancels: what you said is thrown away and nothing is added.
+    if (listening) { rec.cancelled = true; try { rec.abort(); } catch (e) { try { rec.stop(); } catch (e2) {} } return; }
     var input = $('newTitle'), prev = input.value, heard = '', full = '';
     try { rec = new SR(); } catch (e) { say('Voice isn’t available here 🎙️'); return; }
+    var me = rec;
     rec.lang = voiceLang();
     rec.interimResults = true;
     rec.continuous = false;
@@ -775,7 +777,7 @@
       clearTimeout(quiet);
       quiet = setTimeout(function () { try { rec.stop(); } catch (e) {} }, ms);
     }
-    rec.onstart = function () { say('Listening… say it like “Gym at 6pm tomorrow” 🎙️'); stopSoon(7000); };
+    rec.onstart = function () { say('Listening… say it like “Gym at 6pm tomorrow”. Tap ✕ to cancel 🎙️'); stopSoon(7000); };
     rec.onresult = function (e) {
       var interim = '';
       for (var i = e.resultIndex; i < e.results.length; i++) {
@@ -795,6 +797,7 @@
     rec.onend = function () {
       clearTimeout(quiet);
       listening = false; setMic(false);
+      if (me.cancelled) { input.value = prev; say('Cancelled. Nothing was added.'); return; }
       if (full) { input.value = ''; smartAdd(full, false); }
       else input.value = prev;
     };
