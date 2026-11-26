@@ -1977,16 +1977,6 @@
   $('addForm').addEventListener('submit', addTask);
   $('micBtn').onclick = voiceAdd;
   $('fabMic').onclick = voiceAdd;
-  // The floating mic fades in only when the add-box mic has scrolled out of view, and fades out when it is back.
-  (function () {
-    var fab = $('fabMic'), top = $('micBtn');
-    function showFab(on) { fab.classList.toggle('show', on); }
-    if ('IntersectionObserver' in window) {
-      new IntersectionObserver(function (es) { showFab(!es[es.length - 1].isIntersecting); }).observe(top);
-    } else {
-      window.addEventListener('scroll', function () { showFab(window.scrollY > 200); }, { passive: true });
-    }
-  })();
   $('catChip').onclick = function () { catSheet(newCat, function (v) { newCat = v; renderAddChips(); }); };
   $('repChip').onclick = function () { repeatSheet(newRepeat, function (v) { newRepeat = v; renderAddChips(); }); };
   $('prioChip').onclick = function () { prioSheet(newPrio, function (v) { newPrio = v; renderAddChips(); }); };
