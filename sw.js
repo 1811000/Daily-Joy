@@ -1,6 +1,6 @@
-﻿// Daily Joy service worker: caches the app so it opens with no internet.
+// Daily Joy service worker: caches the app so it opens with no internet.
 // Bump VERSION whenever you change a file so phones pick up the new copy.
-var VERSION = 'dailyjoy-v26c';
+var VERSION = 'dailyjoy-v26d';
 // Push server address. Must match PUSH_SERVER in app.js. Leave '' until the Worker is deployed.
 var PUSH_SERVER = 'https://dailyjoy-push.asser1811.workers.dev';
 var FILES = ['./', 'index.html', 'styles.css', 'app.js', 'manifest.webmanifest',
@@ -19,6 +19,10 @@ self.addEventListener('activate', function (e) {
 // Alerts while the app is closed. The server sends an empty "ping"; we then ask it which reminders are due.
 // Safari requires every push to show a notification, so we always show one.
 self.addEventListener('push', function (e) {
+  // If the app is open, tell it right away so it shows its alarm card.
+  self.clients.matchAll({ type: 'window', includeUncontrolled: true }).then(function (list) {
+    list.forEach(function (c) { c.postMessage({ type: 'due' }); });
+  });
   e.waitUntil(
     self.registration.pushManager.getSubscription().then(function (sub) {
       if (!sub || !PUSH_SERVER) return [];
@@ -45,6 +49,7 @@ self.addEventListener('notificationclick', function (e) {
   e.notification.close();
   e.waitUntil(
     self.clients.matchAll({ type: 'window', includeUncontrolled: true }).then(function (list) {
+      list.forEach(function (c) { c.postMessage({ type: 'due' }); });
       for (var i = 0; i < list.length; i++) { if ('focus' in list[i]) return list[i].focus(); }
       return self.clients.openWindow('./');
     })

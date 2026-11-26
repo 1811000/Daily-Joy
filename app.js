@@ -1790,7 +1790,11 @@
   }
   document.addEventListener('visibilitychange', function () { if (!document.hidden) tick(); });
   setInterval(tick, 60000);
-  setInterval(checkAlarms, 10000);
+  setInterval(checkAlarms, 3000);
+  // iOS can pause a page's timers; check again the moment the app wakes, regains focus, or the server's push arrives.
+  window.addEventListener('focus', checkAlarms);
+  window.addEventListener('pageshow', checkAlarms);
+  if ('serviceWorker' in navigator) navigator.serviceWorker.addEventListener('message', function (e) { if (e.data && e.data.type === 'due') checkAlarms(); });
   window.addEventListener('resize', function () { if (running) sizeFx(); });
 
   // "Add to Home Screen" hint for iPhone Safari
