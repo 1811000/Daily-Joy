@@ -668,8 +668,9 @@
     var saved = false;
     function isEdit(t) { var o = t.editOf ? find(t.editOf) : null; return !!(o && !o.Series); }
     function isRemove(t) { return isEdit(t) && t.remove === true; }
-    // A delete that cannot find its task (for example a repeating one) is dropped, never turned into a new task.
-    var items = list.filter(function (t) { return !(t.remove === true && !isEdit(t)); });
+    function isDone(t) { return isEdit(t) && t.done === true && t.remove !== true; }
+    // A delete or "I finished it" that cannot find its task (for example a repeating one) is dropped, never turned into a new task.
+    var items = list.filter(function (t) { return !((t.remove === true || t.done === true) && !isEdit(t)); });
     function meta(t) {
       var bits = [];
       var o = isEdit(t) ? find(t.editOf) : null;
@@ -687,7 +688,7 @@
       var html = '<h2>✨ Smart add</h2><p class="muted">Here’s what I understood. Tap ✕ to drop one.</p><div class="opts" id="saList">';
       items.forEach(function (t, i) {
         html += '<div class="opt sa-row"><span class="sa-sw" style="background:' + cat(t.category !== 'general' ? t.category : snap.cat).color + '"></span>' +
-          '<span class="sa-txt"><b>' + (isRemove(t) ? '🗑️ Delete: ' : isEdit(t) ? '✏️ Update: ' : '') + esc(t.title) + '</b><small>' + esc(isRemove(t) ? '' : meta(t)) + '</small></span>' +
+          '<span class="sa-txt"><b>' + (isRemove(t) ? '🗑️ Delete: ' : isDone(t) ? '✅ Done: ' : isEdit(t) ? '✏️ Update: ' : '') + esc(t.title) + '</b><small>' + esc(isRemove(t) || isDone(t) ? '' : meta(t)) + '</small></span>' +
           '<button type="button" class="sa-x" data-i="' + i + '" aria-label="Remove">✕</button></div>';
       });
       html += '</div><div class="sheet-actions"><button type="button" class="btn soft" id="saCancel">Cancel</button>' +
@@ -703,7 +704,7 @@
       $('saOk').onclick = function () {
         if (!items.length) { closeSheet(); return; }
         saved = true;
-        var added = [], updated = [], removed = [];
+        var added = [], updated = [], removed = [], finished = [];
         items.forEach(function (t) {
           var d = t.date ? parseKey(t.date) : snap.day;
           var rule = t.repeat || snap.rep || '';
@@ -715,6 +716,12 @@
               // A delete: remove the existing task (the sentence said cancel/delete).
               tasks = tasks.filter(function (x) { return x.Id !== old.Id; });
               removed.push(old.Title);
+              return;
+            }
+            if (t.done === true) {
+              // "I did it": mark the existing task done, like swiping it right.
+              old.Done = true;
+              finished.push(old.Title);
               return;
             }
             // An edit: change the existing task, keeping whatever the sentence did not mention.
@@ -739,6 +746,7 @@
         var msg = added.length === 0 ? '' : added.length === 1 ? 'Added ' + added[0] + '.' : 'Added ' + added.length + ' tasks: ' + added.join(', ') + '.';
         if (updated.length) msg += (msg ? ' ' : '') + 'Updated ' + updated.join(', ') + '.';
         if (removed.length) msg += (msg ? ' ' : '') + 'Deleted ' + removed.join(', ') + '.';
+        if (finished.length) msg += (msg ? ' ' : '') + 'Marked done: ' + finished.join(', ') + '.';
         say(msg + ' ✅');
       };
     }
