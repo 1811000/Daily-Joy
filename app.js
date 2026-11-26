@@ -1476,6 +1476,10 @@
       try { navigator.audioSession.type = 'playback'; } catch (e) {}
       clearTimeout(webChime.t);
       webChime.t = setTimeout(function () { try { navigator.audioSession.type = 'auto'; } catch (e) {} }, 1700);
+      // Pause the audio engine once the chime is done, so iOS can drop the lock-screen card.
+      // The next chime (or a tap) resumes it.
+      clearTimeout(webChime.s);
+      webChime.s = setTimeout(function () { try { if (audio && audio.state === 'running') audio.suspend(); } catch (e) {} }, 1800);
     }
     var notes = [880, 1108.7, 1318.5, 1760], t0 = audio.currentTime + 0.02;
     notes.forEach(function (f, i) {
