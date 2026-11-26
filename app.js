@@ -680,6 +680,7 @@
       if (c !== 'general') bits.push(cat(c).emoji + ' ' + cat(c).name);
       var rp = t.repeat || snap.rep; if (rp && REPEAT[rp]) bits.push('🔁 ' + REPEAT[rp].name);
       if (t.priority === 'high') bits.push('🔥 High'); else if (t.priority === 'low') bits.push('🌿 Low');
+      else if (o && t.priority === 'normal' && o.Priority !== 1) bits.push('⭐ Normal');   // an edit that moves a task back to normal
       return bits.join('  ·  ');
     }
     function paint() {
@@ -720,7 +721,8 @@
             old.Title = t.title;
             if (t.date) old.Date = t.date;
             if (t.time) old.Time = t.time;
-            if (t.priority === 'high') old.Priority = 2; else if (t.priority === 'low') old.Priority = 0;
+            // The server decides the new priority in code (and repeats the old one when the sentence says nothing), so apply all three levels.
+            if (t.priority === 'high') old.Priority = 2; else if (t.priority === 'low') old.Priority = 0; else if (t.priority === 'normal') old.Priority = 1;
             if (t.category !== 'general') old.Category = t.category;
             updated.push(t.title);
             return;
