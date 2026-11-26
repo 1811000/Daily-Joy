@@ -1100,7 +1100,7 @@
             unlockAudio.skipDance = true; unlockAudio(); unlockAudio.skipDance = false;
             // we're inside a tap, so play for real right away; that also unlocks the element
             if (webMode) { chime(); } else if (chimeEl) { useChime(); chimeEl.muted = false; chimeReady = true; chimeEl.currentTime = 0; var pp = chimeEl.play(); if (pp && pp.catch) pp.catch(webChime); } else webChime();
-            say('If you heard nothing, turn the volume up 🔊'); closeSheet(); return; }
+            say('v26l · ' + (webMode ? 'web audio' : (navigator.audioSession ? 'player (no WebAudio)' : 'player, no audioSession')) + ' · if silent, turn the volume up 🔊'); closeSheet(); return; }
           closeSheet();
           setTimeout(function () {
             if (a === 'today') setView(today());
@@ -1359,7 +1359,7 @@
     chimeEl.addEventListener('pause', releaseChime);
   }
   function unlockAudio() {
-    try { if (navigator.audioSession) navigator.audioSession.type = 'playback'; } catch (e) {}
+    if (!webMode) { try { if (navigator.audioSession) navigator.audioSession.type = 'playback'; } catch (e) {} }
     if (webMode) {
       // Web Audio only: no <audio> element, so iOS shows no "Now Playing" card on the lock screen.
       try {
@@ -1437,6 +1437,13 @@
   }
   function webChime() {
     if (!audio || audio.state !== 'running') return;
+    if (webMode) {
+      // "playback" only while the chime sounds (so it rings with the silent switch on), then back to normal
+      // so iOS drops the lock-screen media card.
+      try { navigator.audioSession.type = 'playback'; } catch (e) {}
+      clearTimeout(webChime.t);
+      webChime.t = setTimeout(function () { try { navigator.audioSession.type = 'auto'; } catch (e) {} }, 1700);
+    }
     var notes = [880, 1108.7, 1318.5, 1760], t0 = audio.currentTime + 0.02;
     notes.forEach(function (f, i) {
       var o = audio.createOscillator(), g = audio.createGain(), st = t0 + i * 0.16;
