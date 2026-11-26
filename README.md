@@ -38,14 +38,14 @@ It takes about 2 minutes. Open the link in **Safari**. WhatsApp's own browser ca
 5. Tap **Add**.
 6. Find the Daily Joy icon on your Home Screen and open it from there.
 7. Say hello and enter your name.
-8. Open the menu and tap **Alerts when closed**.
-9. Tap **Allow**.
+8. Tap **Next** through the short tour. On the **Reminders** page, tapping **Next** turns on alerts by itself.
+9. When iPhone asks, tap **Allow**. (Missed it? Open the menu and tap **Alerts when closed**.)
 
 | | | |
 |:--:|:--:|:--:|
 | <img src="docs/step1.png" width="260"><br>**1. Open the link** | <img src="docs/step2.png" width="260"><br>**2. Open in Safari** | <img src="docs/step3.png" width="260"><br>**3. Tap Share** |
 | <img src="docs/step4.png" width="260"><br>**4. Add to Home Screen** | <img src="docs/step5.png" width="260"><br>**5. Tap Add** | <img src="docs/step6.png" width="260"><br>**6. Find the icon** |
-| <img src="docs/step7.png" width="260"><br>**7. Enter your name** | <img src="docs/step8.png" width="260"><br>**8. Alerts when closed** | <img src="docs/step9.png" width="260"><br>**9. Tap Allow** |
+| <img src="docs/step7.png" width="260"><br>**7. Enter your name** | <img src="docs/step8.png" width="260"><br>**8. Turn on alerts** | <img src="docs/step9.png" width="260"><br>**9. Tap Allow** |
 
 A printable version of these steps is in [docs/Daily-Joy-iPhone-Install-Guide.pdf](docs/Daily-Joy-iPhone-Install-Guide.pdf).
 
@@ -100,7 +100,7 @@ docs/                 install guide pictures and PDF
 ```
 
 - **Publishing:** upload the app files to the repo root. GitHub Pages serves them at https://1811000.github.io/Daily-Joy/.
-- **Releasing an update:** change `VERSION` in `sw.js` (for example `dailyjoy-v26i` to `dailyjoy-v26j`) so phones pick up the new copy.
+- **Releasing an update:** change `VERSION` in `sw.js` (for example `dailyjoy-v26n` to `dailyjoy-v26o`) so phones pick up the new copy.
 - **Test locally:** serve the folder with any static server and open it in a browser. Service workers need `localhost` or HTTPS.
 
 ---

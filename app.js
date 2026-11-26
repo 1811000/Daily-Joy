@@ -443,10 +443,10 @@
   var CAT_WORDS = [
     ['health',   /\b(gym|workout|work out|exercise|run|running|jog|yoga|swim|swimming|doctor|dentist|clinic|medicine|medication|pills?|vitamins?|meditat\w*|stretch\w*|walk|physio|therapy|appointment|checkup)\b/i],
     ['shopping', /\b(buy|groceries|grocery|shopping|supermarket|store|market|order|purchase|pick up (?:the )?(?:milk|bread|eggs))\b/i],
-    ['learning', /\b(study|homework|assignment|read|reading|course|class|lesson|exam|test|learn\w*|practice|lecture|revise|revision|tutorial)\b/i],
+    ['learning', /\b(study|homework|assignment|read|reading|course|class|lesson|exam|quiz|test|learn\w*|practice|lecture|revise|revision|tutorial)\b/i],
     ['work',     /\b(meeting|email|e-mail|report|boss|client|office|presentation|deadline|invoice|project|proposal|manager|conference|standup|interview|submit|work)\b/i],
     ['home',     /\b(clean\w*|laundry|dishes|trash|garbage|cook\w*|vacuum|repair|plumber|garden\w*|rent|bills?|wash\w*|tidy|iron\w*|fix|mop|landlord|electrician)\b/i],
-    ['fun',      /\b(movie|film|party|birthday|dinner|lunch|game|concert|trip|friends?|picnic|cinema|hang out|date night|holiday|vacation|celebrate|barbecue|bbq|coffee with)\b/i]
+    ['fun',      /\b(watch|movie|film|series|episode|netflix|match|party|birthday|dinner|lunch|game|concert|trip|friends?|picnic|cinema|hang out|date night|holiday|vacation|celebrate|barbecue|bbq|coffee with)\b/i]
   ];
   function guessCat(title) {
     for (var i = 0; i < CAT_WORDS.length; i++) if (CAT_WORDS[i][1].test(title)) return CAT_WORDS[i][0];
@@ -463,6 +463,13 @@
   function parseSpoken(text) {
     var s = ' ' + text.replace(/[,;]/g, ' ').replace(/[.!?]+(?=\s|$)/g, '').replace(/\s+/g, ' ').trim() + ' ';
     var d = null, time = '', priority = null, tonight = false, m;
+    // Day numbers said in words, before a month: "twenty december", "at twenty first of december", "the twentieth of december"
+    var TENS = { twenty: 20, thirty: 30 }, ORDN = { first: 1, second: 2, third: 3, fourth: 4, fifth: 5, sixth: 6, seventh: 7, eighth: 8, ninth: 9, tenth: 10, eleventh: 11, twelfth: 12, thirteenth: 13, fourteenth: 14, fifteenth: 15, sixteenth: 16, seventeenth: 17, eighteenth: 18, nineteenth: 19, twentieth: 20, thirtieth: 30 };
+    var DAYW = '\\b(?:(twenty|thirty)(?:[\\s-]+(first|second|third|fourth|fifth|sixth|seventh|eighth|ninth))?|(first|second|third|fourth|fifth|sixth|seventh|eighth|ninth|tenth|eleventh|twelfth|thirteenth|fourteenth|fifteenth|sixteenth|seventeenth|eighteenth|nineteenth|twentieth|thirtieth))\\b';
+    s = s.replace(new RegExp('(?:\\b(?:at|on|the)\\s+)?' + DAYW + '(?=\\s+(?:of\\s+)?' + MONRX + '(?=\\s))', 'gi'), function (all, t, o, ord) {
+      var n = ord ? ORDN[ord.toLowerCase()] : TENS[t.toLowerCase()] + (o ? ORDN[o.toLowerCase()] : 0);
+      return ' ' + n + ' ';
+    });
     s = s.replace(/\bat\s+(one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve)\b/gi, function (a, w) { return 'at ' + NUMW[w.toLowerCase()]; });
 
     // priority words
@@ -471,7 +478,10 @@
 
     // "in 20 minutes", "in two hours", "in an hour", "in half an hour", "in 3 days", "in a week"
     var amt = '(\\d+(?:\\.\\d+)?|an?|one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve|fifteen|twenty|thirty)';
-    if ((m = /\sin\s+(?:about\s+)?half\s+an?\s+hour(?=\s)/i.exec(s))) { time = '+30'; s = s.replace(m[0], ' '); }
+    if ((m = /\sin\s+(?:a\s+)?couple\s+(?:of\s+)?days(?=\s)/i.exec(s))) { d = addDays(today(), 2); s = s.replace(m[0], ' '); }
+    else if ((m = /\sin\s+(?:a\s+)?couple\s+(?:of\s+)?(?:weeks)(?=\s)/i.exec(s))) { d = addDays(today(), 14); s = s.replace(m[0], ' '); }
+    else if ((m = /\s(?:in\s+(?:a|one)\s+month|next\s+month)(?=\s)/i.exec(s))) { var nm = today(); d = new Date(nm.getFullYear(), nm.getMonth() + 1, nm.getDate()); s = s.replace(m[0], ' '); }
+    else if ((m = /\sin\s+(?:about\s+)?half\s+an?\s+hour(?=\s)/i.exec(s))) { time = '+30'; s = s.replace(m[0], ' '); }
     else if ((m = /\sin\s+(?:about\s+)?an?\s+hour\s+and\s+a\s+half(?=\s)/i.exec(s))) { time = '+90'; s = s.replace(m[0], ' '); }
     else if ((m = new RegExp('\\sin\\s+(?:about\\s+)?' + amt + '\\s*(minutes?|mins?|hours?|hrs?|days?|weeks?)(?=\\s)', 'i').exec(s))) {
       var raw = m[1].toLowerCase(), n = /^an?$/.test(raw) ? 1 : (NUMW[raw] || parseFloat(raw)), unit = m[2].toLowerCase()[0];
@@ -493,11 +503,11 @@
         d = addDays(today(), /tomorrow/i.test(m[1]) ? 1 : 0); tonight = /tonight/i.test(m[1]); s = s.replace(m[0], ' ');
       }
       else if ((m = /\s(?:on\s+)?(?:the\s+)?(\d{1,2})(?:st|nd|rd|th)?\s+(?:of\s+)?(?:the\s+)?month\s+of\s+/i.exec(s))) { /* unlikely phrase: ignore */ }
-      if (!d && (m = new RegExp('\\s(?:on\\s+)?(?:the\\s+)?(\\d{1,2})(?:st|nd|rd|th)?\\s+(?:of\\s+)?' + MONRX + '(?=\\s)', 'i').exec(s))) {
-        d = dateOf(MONS3.indexOf(m[2].toLowerCase().slice(0, 3)), +m[1]); if (d) s = s.replace(m[0], ' ');
+      if (!d && (m = new RegExp('\\s(?:on\\s+|at\\s+|by\\s+)?(?:the\\s+)?(\\d{1,2})(?:st|nd|rd|th)?\\s+(?:of\\s+)?' + MONRX + '(?:\\s+(20\\d\\d))?(?=\\s)', 'i').exec(s))) {
+        d = dateOf(MONS3.indexOf(m[2].toLowerCase().slice(0, 3)), +m[1], m[3]); if (d) s = s.replace(m[0], ' ');
       }
-      if (!d && (m = new RegExp('\\s(?:on\\s+)?' + MONRX + '\\s+(?:the\\s+)?(\\d{1,2})(?:st|nd|rd|th)?(?=\\s)', 'i').exec(s))) {
-        d = dateOf(MONS3.indexOf(m[1].toLowerCase().slice(0, 3)), +m[2]); if (d) s = s.replace(m[0], ' ');
+      if (!d && (m = new RegExp('\\s(?:on\\s+|at\\s+|by\\s+)?' + MONRX + '\\s+(?:the\\s+)?(\\d{1,2})(?:st|nd|rd|th)?(?![:.]?\\d)(?!\\s*(?:a\\.?m|p\\.?m|o\'?clock))(?:\\s+(20\\d\\d))?(?=\\s)', 'i').exec(s))) {
+        d = dateOf(MONS3.indexOf(m[1].toLowerCase().slice(0, 3)), +m[2], m[3]); if (d) s = s.replace(m[0], ' ');
       }
       if (!d && (m = /\s(?:on\s+)?the\s+(\d{1,2})(?:st|nd|rd|th)(?=\s)/i.exec(s))) {
         d = +m[1] >= 1 && +m[1] <= 31 ? nextDayOfMonth(+m[1]) : null; if (d) s = s.replace(m[0], ' ');
@@ -536,7 +546,7 @@
         if (!pm && h === 12) h = 0;
         time = pad(h) + ':' + pad(mi); s = s.replace(m[0], ' ');
       }
-      else if ((m = /\sat\s+(\d{1,2})(?::(\d{2}))?(?:\s*o'?clock)?(?=\s)/i.exec(s)) && +m[1] <= 23 && (m[2] ? +m[2] : 0) <= 59) {
+      else if ((m = /\sat\s+(\d{1,2})(?::(\d{2}))?(?:\s*o'?clock)?(?=\s)(?!\s+(?:of\s+)?(?:jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)[a-z]*\s)/i.exec(s)) && +m[1] <= 23 && (m[2] ? +m[2] : 0) <= 59) {
         h = +m[1]; mi = m[2] ? +m[2] : 0;
         if (h >= 1 && h <= 6) h += 12;                  // "at 6" usually means the evening
         else if (tonight && h < 12) h += 12;
@@ -550,7 +560,9 @@
     }
 
     var title = s.replace(/\s+/g, ' ').trim()
-      .replace(/^(?:please\s+)?(?:remind me|reminder|remember|don'?t forget|i need|i have|i should|i must|i want|add (?:a |an )?(?:task|reminder)|set (?:a |an )?reminder)(?:\s+(?:to|for|about|that))?\s+/i, '')
+      // command words the user says to the app, never part of the task: "add", "create", "add a task to my list"
+      .replace(/^(?:please\s+|can you\s+|could you\s+|would you\s+)?(?:add|create|write down|put on my list)\s+(?:a\s+|an\s+|new\s+|another\s+|this\s+)?(?:(?:task|reminder|to-?do|item|note)\s+)?(?:to\s+(?:my|the)\s+(?:list|tasks?)\s+)?(?:(?:to|that|about)\s+)?/i, '')
+      .replace(/^(?:please\s+)?(?:(?:remind me|reminder|remember|don'?t forget|i should|i must|i want|i wanna|i gotta|i got to|i'?ll|i will|set (?:a |an )?reminder)(?:\s+(?:to|for|about|that))?|(?:i need|i have|i got)(?:\s+(?:a|an))?(?:\s+(?:to|for|about|that))?)\s+/i, '')
       .replace(/^(?:to|and|then)\s+/i, '')
       .replace(/\s+(at|on|by|for|to|in|and|then|the|this|next)$/i, '').trim();
     if (!title) title = text.trim();
@@ -558,10 +570,11 @@
     return { title: title, date: d, time: time, priority: priority, category: guessCat(title) };
   }
   // month index + day -> the next such date (this year, or next year if it already passed)
-  function dateOf(month, day) {
+  function dateOf(month, day, year) {
     if (month < 0 || day < 1 || day > 31) return null;
-    var t = today(), d = new Date(t.getFullYear(), month, day);
+    var t = today(), d = new Date(year ? +year : t.getFullYear(), month, day);
     if (d.getMonth() !== month) return null;
+    if (year) return d;
     if (d < t) d = new Date(t.getFullYear() + 1, month, day);
     return d.getMonth() === month ? d : null;
   }
@@ -573,11 +586,13 @@
   }
   // One sentence can hold several tasks: "gym at 6pm then call mom tomorrow at noon".
   // A bare "and" only splits when a task verb follows ("gym at 6pm and call mom"), so "salt and pepper" stays one task.
-  var SPLIT_RX = /\s+(?:and then|and also|and remind me to|and remember to|and don'?t forget to|then|also|next task|another task|another reminder|new task|new reminder)\s+|\s+and(?=\s+(?:call|text|message|email|e-mail|buy|get|pick|pay|send|book|check|clean|do|finish|write|read|study|walk|go|meet|take|make|cook|wash|feed|water|renew|cancel|order|submit|remind|remember|visit|fix|print|drop|return|practi[cs]e|review|prepare|plan|schedule|watch|wake|sign|update|upload|brush|shower|stretch|sleep|tidy|vacuum|mop|bring|collect|register|apply|reply|answer|pack)\b)\s+/i;
+  var SPLIT_RX = /\s+(?:and then|and also|and remind me to|and remember to|and don'?t forget to|then|also|next task|another task|another reminder|new task|new reminder)\s+|\s+and(?=\s+i\s+(?:want|wanna|need|have|should|must|will|gotta|got to|am going|'m going)\b)\s+|\s+and(?=\s+(?:add|create|call|text|message|email|e-mail|buy|get|pick|pay|send|book|check|clean|do|finish|write|read|study|walk|go|meet|take|make|cook|wash|feed|water|renew|cancel|order|submit|remind|remember|visit|fix|print|drop|return|practi[cs]e|review|prepare|plan|schedule|watch|wake|sign|update|upload|brush|shower|stretch|sleep|tidy|vacuum|mop|bring|collect|register|apply|reply|answer|pack)\b)\s+/i;
   function addByVoice(text, typed) {
     text = text.replace(/[“”"«»]/g, '').replace(/\s*[,;]+\s*/g, ' ').replace(/\s+/g, ' ').trim();   // dictation adds commas: "6pm, then, call mom"
-    var parts = text.split(SPLIT_RX).map(function (x) { return x.trim(); }).filter(Boolean);
-    if (!parts.length) return;
+    var parts = text.split(SPLIT_RX).map(function (x) { return x.trim(); })
+      // a part that is only a command word ("add", "add a task", "create") is not a task
+      .filter(function (x) { return x && !/^(?:please\s+)?(?:add|create|new|remind me|reminder)(?:\s+(?:a|an|new|another))?(?:\s+(?:task|reminder|to-?do|item))?$/i.test(x); });
+    if (!parts.length) { say('What should I add? Try “Gym at 6pm tomorrow” ✨'); return; }
     var added = [];
     parts.forEach(function (part) {
       var rp = extractRepeat(part), rule = newRepeat, wd = null;
@@ -915,6 +930,17 @@
     ['⏰', 'Reminders', 'Give a task a time and Daily Joy rings when it’s due. Turn on <b>Alerts when closed</b> in ••• Options so reminders still arrive with the app closed. <b>🔔 Keep reminding</b> (needs a time) repeats the alert until you finish.'],
     ['🧭', 'Explore the rest', 'Tap <b>•••</b> for Options: morning briefing, evening wrap-up, weekly recap, Siri, voice language and backups. You can see this tour again from Options.']
   ];
+  // Can the tour turn on "Alerts when closed" right now? (installed app, server set up, not already on, not refused)
+  function canAskPush() {
+    try {
+      if (pushOn || !pushReady() || !('PushManager' in window) || !('Notification' in window)) return false;
+      var ios = /iphone|ipad|ipod/i.test(navigator.userAgent);
+      var standalone = navigator.standalone || matchMedia('(display-mode: standalone)').matches;
+      if (ios && !standalone) return false;
+      return Notification.permission !== 'denied';
+    } catch (e) { return false; }
+  }
+  var REMIND_STEP = 3;   // the "Reminders" page of the tour (page 0 is the name)
   function welcomeSheet() {
     var step = 0, cur = myName();
     try { localStorage.setItem(WELCOMED, '1'); } catch (e) {}
@@ -928,8 +954,12 @@
           '<input class="field" type="text" id="wName" maxlength="30" autocomplete="given-name" placeholder="Your name" value="' + esc(cur) + '" aria-label="Your name">';
         buttons = '<button type="button" class="btn ghost" id="wSkip">Skip</button><button type="button" class="btn primary" id="wNext">Next</button>';
       } else {
-        var t = TOUR[step - 1];
-        body = '<div class="wcard"><div class="wemoji" aria-hidden="true">' + t[0] + '</div><h2>' + t[1] + '</h2><p>' + t[2] + '</p></div>';
+        var t = TOUR[step - 1], txt = t[2];
+        if (step === REMIND_STEP) {
+          if (pushOn) txt = 'Give a task a time and Daily Joy rings when it’s due. <b>Alerts when closed</b> is already on ✅, so reminders arrive even with the app closed. <b>🔔 Keep reminding</b> (needs a time) repeats the alert until you finish.';
+          else if (canAskPush()) txt = 'Give a task a time and Daily Joy rings when it’s due. When you tap <b>Next</b>, your iPhone asks to send notifications: tap <b>Allow</b> so reminders still arrive with the app closed. <b>🔔 Keep reminding</b> (needs a time) repeats the alert until you finish.';
+        }
+        body = '<div class="wcard"><div class="wemoji" aria-hidden="true">' + t[0] + '</div><h2>' + t[1] + '</h2><p>' + txt + '</p></div>';
         buttons = '<button type="button" class="btn soft" id="wBack">Back</button><button type="button" class="btn primary" id="wNext">' + (last ? 'Let’s go 🎉' : 'Next') + '</button>';
       }
       s.innerHTML = '<div class="grab"></div>' + dots + body + '<div class="sheet-actions">' + buttons + '</div>';
@@ -940,6 +970,9 @@
           step = 1; paint(s); return;
         }
         if (last) { closeSheet(); say((myName() ? 'You’re all set, ' + myName() : 'You’re all set') + '! 🎉'); render(); return; }
+        // Reminders page: turn on "Alerts when closed" right here. It must happen inside this tap,
+        // because iPhone only shows the "Allow notifications" question from a tap.
+        if (step === REMIND_STEP && canAskPush()) enablePush();
         step++; paint(s);
       };
       if (step === 0) {
