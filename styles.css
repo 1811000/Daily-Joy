@@ -413,8 +413,26 @@ textarea.field { resize: vertical; min-height: 84px; }
 }
 .alarm-actions { display: flex; flex-direction: column; gap: 8px; margin-top: 20px; }
 .alarm-actions .btn { width: 100%; }
-.alarm-snooze { display: flex; gap: 8px; }
-.alarm-snooze .btn { flex: 1; padding-left: 6px; padding-right: 6px; white-space: nowrap; }
+.alarm-snooze { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.alarm-snooze .btn { width: 100%; padding-left: 6px; padding-right: 6px; font-size: 14px; white-space: nowrap; }
+.alarm-hint { margin-top: 12px; font-size: 13px; font-weight: 700; color: var(--sub); }
+.alarm-hint[hidden] { display: none; }
+.alarm-nag { margin-top: 12px; font-size: 13px; font-weight: 750; color: var(--accent); }
+
+/* ---------- Streak, recap, Siri steps ---------- */
+.streak {
+  display: inline-block; margin-top: 8px; padding: 5px 11px; border-radius: 999px;
+  background: rgba(255, 255, 255, .24); font-size: 13px; font-weight: 750;
+}
+.streak[hidden] { display: none; }
+.recap { text-align: center; padding: 4px 0; }
+.recap-big { font-size: 64px; font-weight: 850; line-height: 1; color: var(--accent); }
+.recap-title { margin-top: 8px; font-size: 18px; font-weight: 750; }
+.recap-row { display: flex; flex-direction: column; gap: 8px; margin-top: 16px; font-size: 15px; font-weight: 650; }
+.recap-row span { background: var(--soft); border-radius: 14px; padding: 10px 12px; }
+.steps { padding-left: 20px; font-size: 14.5px; line-height: 1.5; }
+.steps li { margin: 6px 0; }
+.steps code { font-size: 12.5px; word-break: break-all; }
 
 /* ---------- Launch splash ---------- */
 /* Every animation starts FROM a hidden state and ends on the normal style, so with reduced motion it simply shows. */

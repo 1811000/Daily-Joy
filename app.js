@@ -132,7 +132,9 @@
       Priority: [0, 1, 2].indexOf(+t.Priority) >= 0 ? +t.Priority : 1,
       Done: !!t.Done,
       Created: +t.Created || nowTicks(),
-      Category: cat(t.Category).key
+      Category: cat(t.Category).key,
+      Top: !!t.Top,       // pinned to the top of its day (max 3)
+      Nag: !!t.Nag        // keeps reminding every 5-10 minutes until it is done
     };
   }
   function load() {
@@ -181,7 +183,7 @@
         s.Through = k; changed = true;
         if (k < tk) continue;
         if (!tasks.some(function (x) { return x.Series === id && x.Date === k; })) {
-          tasks.push(normalize({ Title: s.Title, Notes: s.Notes, Date: k, Time: s.Time, Priority: s.Priority, Category: s.Category,
+          tasks.push(normalize({ Title: s.Title, Notes: s.Notes, Date: k, Time: s.Time, Priority: s.Priority, Category: s.Category, Nag: s.Nag,
                                  Series: id, Repeat: s.Rule, Created: nowTicks() }));
         }
       }
@@ -192,7 +194,7 @@
   function startSeries(t, rule) {
     var id = newId();
     t.Series = id; t.Repeat = rule;
-    series[id] = { Rule: rule, Title: t.Title, Notes: t.Notes, Time: t.Time, Priority: t.Priority, Category: t.Category, Anchor: t.Date, Through: t.Date };
+    series[id] = { Rule: rule, Title: t.Title, Notes: t.Notes, Time: t.Time, Priority: t.Priority, Category: t.Category, Nag: t.Nag, Anchor: t.Date, Through: t.Date };
   }
   // "Gym every Monday at 6pm" -> { rest: "Gym at 6pm", rule: "weekly", weekday: 1 }
   var EVERY_RX = /(?:^|\s)every\s+(day|weekdays?|week|month|(?:sun|mon|tues|wednes|thurs|fri|satur)day)(?=\s|$|[.,!?])/i;
@@ -213,7 +215,16 @@
   var RING_C = 2 * Math.PI * 35;
 
   function tasksOn(k) { return tasks.filter(function (t) { return t.Date === k; }); }
+  // The (up to) three pinned tasks of a day that are still to do: { id: 1 }
+  var topIds = {};
+  function computeTop(list) {
+    var o = {};
+    list.filter(function (t) { return t.Top && !t.Done; }).sort(function (a, b) { return a.Created - b.Created; })
+      .slice(0, 3).forEach(function (t) { o[t.Id] = 1; });
+    return o;
+  }
   function sortTodo(a, b) {
+    if (!!topIds[a.Id] !== !!topIds[b.Id]) return topIds[a.Id] ? -1 : 1;
     if (!!a.Time !== !!b.Time) return a.Time ? -1 : 1;
     if (a.Time !== b.Time) return a.Time < b.Time ? -1 : 1;
     if (a.Priority !== b.Priority) return b.Priority - a.Priority;
@@ -236,9 +247,13 @@
     var vk = key(view), dayTasks = tasksOn(vk);
     var total = dayTasks.length, done = dayTasks.filter(function (t) { return t.Done; }).length;
     var ratio = total ? done / total : 0;
+    topIds = computeTop(dayTasks);
 
     // hero
     $('greet').textContent = greeting();
+    var st = streakCount();
+    $('streak').hidden = st < 2;
+    $('streak').textContent = '🔥 ' + st + ' days in a row finishing everything';
     var rel = relative(view), n = diffDays(view, today());
     $('title').textContent = (n >= -1 && n <= 1) ? rel : WDL[view.getDay()];
     var msg;
@@ -316,6 +331,8 @@
   function card(t) {
     var c = cat(t.Category), p = prio(t.Priority), meta = '';
     var isLate = !t.Done && t.Time && t.Date === key(today()) && t.Time < pad(new Date().getHours()) + ':' + pad(new Date().getMinutes());
+    if (topIds[t.Id]) meta += '<span class="tag" style="--tc:#ff6384">📌 Top</span>';
+    if (t.Nag && !t.Done) meta += '<span class="tag" style="--tc:#7a6e8e">🔔 Keeps reminding</span>';
     if (t.Time) meta += '<span class="tag" style="--tc:' + (isLate ? '#ef4444' : '#7a6e8e') + '">' + (isLate ? '⏰ ' : '🕒 ') + timeDisp(t.Time) + '</span>';
     if (t.Priority !== 1) meta += '<span class="tag" style="--tc:' + p.color + '">' + p.emoji + ' ' + p.name + '</span>';
     if (t.Repeat) meta += '<span class="tag" style="--tc:#7a6e8e">🔁 ' + REPEAT[t.Repeat].name + '</span>';
@@ -906,7 +923,7 @@
       if (isNaN(at) || at < now - 120000 || at > limit) return;   // skip times that have already passed
       out.push({ k: t.Id + '|' + t.Date + '|' + t.Time, title: t.Title, time: t.Time, at: new Date(at).toISOString() });
     });
-    return out.slice(0, 100);
+    return out.concat(extraReminders(now)).slice(0, 100);
   }
   function syncPush() {
     if (!pushOn || !pushReady() || !('serviceWorker' in navigator)) return Promise.resolve();
@@ -969,6 +986,10 @@
       ['clear', '🧹', 'Clear done tasks', ''],
       ['alarm', alarmOn ? '🔔' : '🔕', 'In-app alarm', alarmOn ? 'On' : 'Off'],
       ['push', pushOn ? '🔔' : '🔕', 'Alerts when closed', pushOn ? 'On' : 'Off'],
+      ['brief', '☀️', 'Morning briefing', lsGet(BRIEF) ? timeDisp(lsGet(BRIEF)) : 'Off'],
+      ['wrap', '🌙', 'Evening wrap-up', lsGet(WRAP) ? timeDisp(lsGet(WRAP)) : 'Off'],
+      ['recap', '📊', 'Weekly recap', 'See your week'],
+      ['siri', '🗣️', 'Hey Siri, add a task', 'Set up'],
       ['testsound', '🔊', 'Test alarm sound', 'Plays a chime'],
       ['lang', '🎙️', 'Voice language', (LANGS.filter(function (l) { return l[0] === (function () { try { return localStorage.getItem(LANG) || ''; } catch (e) { return ''; } })(); })[0] || LANGS[0])[1]],
       ['theme', dark ? '☀️' : '🌙', dark ? 'Light theme' : 'Dark theme', ''],
@@ -1008,6 +1029,9 @@
             else if (a === 'auto') { try { localStorage.removeItem(THEME); } catch (e) {} applyTheme(sysDark.matches ? 'dark' : 'light'); }
             else if (a === 'export') exportTasks();
             else if (a === 'lang') langSheet();
+            else if (a === 'brief' || a === 'wrap') timeSheet(a);
+            else if (a === 'recap') recapSheet();
+            else if (a === 'siri') siriSheet();
           }, 350);
         };
       });
@@ -1025,13 +1049,13 @@
     if (!sid) return;
     if (!s) s = series[sid] = { Rule: rule, Anchor: t.Date, Through: t.Date };
     var ruleChanged = rule !== s.Rule;
-    s.Title = t.Title; s.Notes = t.Notes; s.Time = t.Time; s.Priority = t.Priority; s.Category = t.Category;
+    s.Title = t.Title; s.Notes = t.Notes; s.Time = t.Time; s.Priority = t.Priority; s.Category = t.Category; s.Nag = t.Nag;
     if (ruleChanged) {                        // new pattern: rebuild everything after this one
       dropFuture(); s.Rule = rule; s.Anchor = t.Date; s.Through = t.Date; t.Repeat = rule;
     } else {                                  // same pattern: refresh the future ones
       tasks.forEach(function (x) {
         if (x !== t && x.Series === sid && !x.Done && x.Date > t.Date) {
-          x.Title = t.Title; x.Notes = t.Notes; x.Time = t.Time; x.Priority = t.Priority; x.Category = t.Category;
+          x.Title = t.Title; x.Notes = t.Notes; x.Time = t.Time; x.Priority = t.Priority; x.Category = t.Category; x.Nag = t.Nag;
         }
       });
     }
@@ -1040,7 +1064,7 @@
 
   function editSheet(id) {
     var t = find(id); if (!t) return;
-    var d = { Date: t.Date, Time: t.Time, Priority: t.Priority, Category: t.Category, Repeat: t.Repeat };
+    var d = { Date: t.Date, Time: t.Time, Priority: t.Priority, Category: t.Category, Repeat: t.Repeat, Top: t.Top, Nag: t.Nag };
     var tk = key(today()), tmk = key(addDays(today(), 1));
     var html = '<h2>Edit task</h2>' +
       '<input class="field" id="eTitle" maxlength="200" value="' + esc(t.Title) + '" aria-label="Title">' +
@@ -1061,6 +1085,10 @@
       (t.Series ? '<p class="muted" id="eRepNote">Changes to the title, time, priority or category also apply to the next ones. Moving the date only moves this one.</p>' : '') +
       '<h3>Priority</h3><div class="seg" id="ePrio">' +
         PRIOS.map(function (p, i) { return '<button type="button" data-v="' + i + '" style="--sc:' + p.color + '">' + p.emoji + ' ' + p.name + '</button>'; }).join('') + '</div>' +
+      '<h3>Extras</h3><div class="seg" id="eFlags">' +
+        '<button type="button" data-v="Top">📌 Top 3 today</button>' +
+        '<button type="button" data-v="Nag">🔔 Keep reminding</button></div>' +
+      '<p class="muted">Top 3 pins it above everything else. Keep reminding repeats the alert every few minutes until it is done (High priority always does).</p>' +
       '<h3>Category</h3><div class="seg" id="eCat">' +
         CATS.map(function (c) { return '<button type="button" data-v="' + c.key + '" style="--sc:' + c.color + '">' + c.emoji + ' ' + c.name + '</button>'; }).join('') + '</div>' +
       '<h3>Notes</h3><textarea class="field" id="eNotes" placeholder="Anything to remember?">' + esc(t.Notes) + '</textarea>' +
@@ -1073,6 +1101,7 @@
         s.querySelectorAll('#ePrio button').forEach(function (b) { b.classList.toggle('on', +b.dataset.v === d.Priority); });
         s.querySelectorAll('#eCat button').forEach(function (b) { b.classList.toggle('on', b.dataset.v === d.Category); });
         s.querySelectorAll('#eRep button').forEach(function (b) { b.classList.toggle('on', b.dataset.v === d.Repeat); });
+        s.querySelectorAll('#eFlags button').forEach(function (b) { b.classList.toggle('on', !!d[b.dataset.v]); });
         $('eDate').value = d.Date; $('eTime').value = d.Time;
         $('eTimeTxt').textContent = d.Time ? '🕒 ' + timeDisp(d.Time) + ' · ' + friendly(parseKey(d.Date)) : 'No time set · ' + friendly(parseKey(d.Date));
         $('eNoTime').hidden = !d.Time;
@@ -1082,6 +1111,7 @@
       s.querySelectorAll('#ePrio button').forEach(function (b) { b.onclick = function () { d.Priority = +b.dataset.v; sync(); }; });
       s.querySelectorAll('#eCat button').forEach(function (b) { b.onclick = function () { d.Category = b.dataset.v; sync(); }; });
       s.querySelectorAll('#eRep button').forEach(function (b) { b.onclick = function () { d.Repeat = b.dataset.v; sync(); }; });
+      s.querySelectorAll('#eFlags button').forEach(function (b) { b.onclick = function () { d[b.dataset.v] = !d[b.dataset.v]; sync(); }; });
       $('ePrev').onclick = function () { d.Date = key(addDays(parseKey(d.Date), -1)); sync(); };
       $('eNext').onclick = function () { d.Date = key(addDays(parseKey(d.Date), 1)); sync(); };
       $('eDate').onchange = function () { if (this.value) d.Date = this.value; sync(); };
@@ -1102,9 +1132,15 @@
         var moved = d.Date !== t.Date;
         t.Title = title; t.Notes = $('eNotes').value.replace(/\s+$/, '');
         t.Date = d.Date; t.Time = d.Time; t.Priority = d.Priority; t.Category = d.Category;
+        t.Nag = !!d.Nag; t.Top = !!d.Top;
+        var topMsg = '';
+        if (t.Top) {   // only three can be pinned per day
+          var pinned = tasksOn(t.Date).filter(function (x) { return x !== t && x.Top && !x.Done; });
+          if (pinned.length >= 3) { t.Top = false; topMsg = ' (Top 3 is full for that day)'; }
+        }
         applyRepeatEdit(t, d.Repeat);
         save(); closeSheet(); render();
-        say(moved ? 'Moved to ' + friendly(parseKey(d.Date)) + ' 📅' : 'Saved ✅');
+        say((moved ? 'Moved to ' + friendly(parseKey(d.Date)) + ' 📅' : 'Saved ✅') + topMsg);
       };
       sync();
     });
@@ -1170,7 +1206,7 @@
   var ALARM = 'dailyjoy.alarm', FIRED = 'dailyjoy.fired';
   var alarmOn = (function () { try { return localStorage.getItem(ALARM) !== '0'; } catch (e) { return true; } })();
   var fired = (function () { try { return JSON.parse(localStorage.getItem(FIRED) || '{}'); } catch (e) { return {}; } })();
-  var snoozed = {}, alarmShowing = null, chimeTimer = null, audio = null;
+  var snoozed = {}, alarmShowing = null, chimeTimer = null, audio = null, needSound = false;
 
   function saveFired() {
     var cutoff = Date.now() - 3 * 86400000;
@@ -1217,7 +1253,17 @@
     try { if (navigator.audioSession) navigator.audioSession.type = 'playback'; } catch (e) {}
     try {
       if (!chimeEl) { chimeUrl = makeChimeUrl(); chimeEl = new Audio(chimeUrl); chimeEl.preload = 'auto'; }
-      if (!chimeReady && !unlocking && !unlockAudio.skipDance) {
+      if (needSound && alarmShowing && !unlockAudio.skipDance) {
+        // The app was opened by tapping a notification, so no touch happened yet and the alarm was silent.
+        // Play the REAL chime right here, inside the touch itself (iOS only allows sound from a touch).
+        useChime(); chimeEl.muted = false;
+        try { chimeEl.currentTime = 0; } catch (e) {}
+        // Mark as ready at once so the touch's other events (touchend, click) don't swap in the silent clip mid-chime.
+        needSound = false; chimeReady = true; unlocking = false;
+        var h = document.getElementById('alarmHint'); if (h) h.hidden = true;
+        var rp = chimeEl.play();
+        if (rp && rp.catch) rp.catch(function () { chimeReady = false; if (alarmShowing) needSound = true; });
+      } else if (!chimeReady && !unlocking && !unlockAudio.skipDance) {
         // Unlock the element by playing SILENCE (not the chime), so nothing audible can leak out.
         unlocking = true;
         if (!silentUrl) silentUrl = makeSilentUrl();
@@ -1226,6 +1272,8 @@
           unlocking = false;
           if (ok) chimeReady = true;
           if (chimeEl.src === silentUrl) { chimeEl.pause(); chimeEl.src = chimeUrl; }
+          // The app was opened from a notification: no tap happened yet, so the alarm was silent. Ring now.
+          if (ok && needSound) { needSound = false; var h = document.getElementById('alarmHint'); if (h) h.hidden = true; if (alarmShowing) chime(); }
         };
         var pr = chimeEl.play();
         if (pr && pr.then) pr.then(function () { finish(true); }, function () { finish(false); }); else finish(true);
@@ -1266,6 +1314,15 @@
   }
   function stopRinging() { clearInterval(chimeTimer); chimeTimer = null; }
 
+  // A task that keeps reminding until it is done: marked "Keep reminding", or high priority.
+  function nagging(t) { return !t.Done && (t.Nag || t.Priority === 2); }
+  // Moves a task to another day/time (used by "This evening" and "Tomorrow morning").
+  function rescheduleTask(id, when, message) {
+    var y = find(id); if (!y) return;
+    y.Date = key(when); y.Time = pad(when.getHours()) + ':' + pad(when.getMinutes());
+    save(); say(message); render();
+  }
+
   function showAlarm(t) {
     alarmShowing = t.Id;
     var c = cat(t.Category), box = $('alarm');
@@ -1275,28 +1332,48 @@
       (t.Notes ? '<div class="alarm-notes">' + esc(t.Notes.split('\n')[0]) + '</div>' : '') +
       '<div class="alarm-cat" style="--tc:' + c.color + '">' + c.emoji + ' ' + c.name + '</div>' +
       '<div class="alarm-actions"><button type="button" class="btn primary" data-a="done">✅ Done</button>' +
-      '<div class="alarm-snooze"><button type="button" class="btn soft" data-a="s10">💤 10 min</button>' +
-      '<button type="button" class="btn soft" data-a="s60">💤 1 hour</button>' +
-      '<button type="button" class="btn soft" data-a="tom">🌅 Tomorrow</button></div>' +
+      '<div class="alarm-snooze"><button type="button" class="btn soft" data-a="s10">💤 +10 min</button>' +
+      '<button type="button" class="btn soft" data-a="s60">⏳ +1 hour</button>' +
+      '<button type="button" class="btn soft" data-a="eve">🌇 This evening</button>' +
+      '<button type="button" class="btn soft" data-a="tom">🌅 Tomorrow morning</button></div>' +
+      '<div class="alarm-hint" id="alarmHint"' + (chimeReady ? ' hidden' : '') + '>🔊 Touch the screen to hear the chime</div>' +
+      (nagging(t) ? '<div class="alarm-nag">🔔 Keeps reminding you until it’s done</div>' : '') +
       '<button type="button" class="btn ghost" data-a="dismiss">Dismiss</button></div></div>';
     box.hidden = false;
     requestAnimationFrame(function () { box.classList.add('show'); });
     var rings = 0;
+    needSound = !chimeReady;
+    if (nagging(t)) snoozed[t.Id] = Date.now() + 7 * 60000;   // unless answered, ask again in 7 minutes
     ringAlarm(); stopRinging();
     chimeTimer = setInterval(function () { if (++rings > 12) stopRinging(); else ringAlarm(); }, 4000);
     box.querySelectorAll('button').forEach(function (b) {
       b.onclick = function () {
         var a = b.dataset.a;
+        delete snoozed[t.Id];
         if (a === 'done') { var x = find(t.Id); if (x) { x.Done = true; save(); } say('Nice, done! ✅'); }
         else if (a === 's10' || a === 's60') {
-          var mins = a === 's10' ? 10 : 60;
-          snoozed[t.Id] = Date.now() + mins * 60000;
-          say('Snoozed for ' + (mins === 10 ? '10 minutes' : '1 hour') + ' 💤');
+          // Snoozing moves the task itself: 4:00 PM + 10 min = 4:10 PM (from now if that time already passed).
+          var mins = a === 's10' ? 10 : 60, sx = find(t.Id);
+          if (sx && sx.Time) {
+            var sp = sx.Time.split(':'), sd = parseKey(sx.Date); sd.setHours(+sp[0], +sp[1], 0, 0);
+            var nw = new Date(sd.getTime() + mins * 60000);
+            if (nw.getTime() <= Date.now()) nw = new Date(Date.now() + mins * 60000);
+            rescheduleTask(t.Id, nw, 'Moved to ' + timeDisp(pad(nw.getHours()) + ':' + pad(nw.getMinutes())) + ' 💤');
+          } else snoozed[t.Id] = Date.now() + mins * 60000;
+        }
+        else if (a === 'eve') {
+          var when = new Date();
+          if (when.getHours() < 18) when.setHours(18, 0, 0, 0);
+          else when = new Date(when.getTime() + 2 * 3600000);
+          rescheduleTask(t.Id, when, 'Moved to ' + timeDisp(pad(when.getHours()) + ':' + pad(when.getMinutes())) + ' 🌇');
         }
         else if (a === 'tom') {
-          var y = find(t.Id);
-          if (y) { y.Date = key(addDays(today(), 1)); save(); }
-          say('Moved to tomorrow at ' + timeDisp(t.Time) + ' 🌅');
+          var tm = addDays(today(), 1); tm.setHours(9, 0, 0, 0);
+          rescheduleTask(t.Id, tm, 'Moved to tomorrow morning 🌅');
+        }
+        else if (a === 'dismiss' && nagging(t)) {
+          snoozed[t.Id] = Date.now() + 7 * 60000;
+          say('I’ll ask again in 7 minutes 🔔');
         }
         hideAlarm();
         render();
@@ -1322,6 +1399,206 @@
       fired[id] = now; saveFired(); next = t; return true;
     });
     if (next) showAlarm(next);
+  }
+
+  // ---------- Streaks, briefing, wrap-up, weekly recap, Siri inbox ----------
+  var BRIEF = 'dailyjoy.brief', WRAP = 'dailyjoy.wrap', WRAPSHOWN = 'dailyjoy.wrapShown', RECAPSHOWN = 'dailyjoy.recapShown', INBOX = 'dailyjoy.inbox';
+  function lsGet(k) { try { return localStorage.getItem(k) || ''; } catch (e) { return ''; } }
+  function lsSet(k, v) { try { if (v) localStorage.setItem(k, v); else localStorage.removeItem(k); } catch (e) {} }
+  function atTime(d, hhmm) { var p = hhmm.split(':'); return new Date(d.getFullYear(), d.getMonth(), d.getDate(), +p[0], +p[1]).getTime(); }
+  function plural(n, w) { return n + ' ' + w + (n === 1 ? '' : 's'); }
+
+  // Days in a row where everything planned was finished (today counts once it is all done).
+  function allDone(list) { return list.length > 0 && list.every(function (t) { return t.Done; }); }
+  function streakCount() {
+    var n = 0, d = today();
+    if (!allDone(tasksOn(key(d)))) d = addDays(d, -1);
+    for (var i = 0; i < 400; i++) {
+      if (!allDone(tasksOn(key(d)))) break;
+      n++; d = addDays(d, -1);
+    }
+    return n;
+  }
+
+  // Extra notifications for the push server: morning briefing, evening wrap-up, repeat nags.
+  function extraReminders(now) {
+    var out = [], b = lsGet(BRIEF), w = lsGet(WRAP);
+    for (var i = 0; i < 3; i++) {
+      var d = addDays(today(), i), k = key(d);
+      var open = tasksOn(k).filter(function (t) { return !t.Done; });
+      if (!open.length) continue;
+      if (b) {
+        var ab = atTime(d, b);
+        if (ab > now - 120000) {
+          var timed = open.filter(function (t) { return t.Time; }).sort(function (x, y) { return x.Time < y.Time ? -1 : 1; })[0];
+          out.push({ k: 'brief|' + k, time: '', at: new Date(ab).toISOString(),
+            title: '☀️ ' + plural(open.length, 'task') + ' today' + (timed ? ', first one at ' + timeDisp(timed.Time) : '') });
+        }
+      }
+      if (w) {
+        var aw = atTime(d, w);
+        if (aw > now - 120000) out.push({ k: 'wrap|' + k, time: '', at: new Date(aw).toISOString(),
+          title: '🌙 ' + plural(open.length, 'task') + ' left. Open Daily Joy to move them to tomorrow' });
+      }
+      if (i < 2) open.forEach(function (t) {
+        if (!t.Time || !nagging(t)) return;
+        var due = atTime(d, t.Time);
+        for (var n = 1; n <= 4; n++) {
+          var an = due + n * 7 * 60000;
+          if (an > now - 120000) out.push({ k: 'nag|' + t.Id + '|' + n + '|' + t.Date + '|' + t.Time, time: '', at: new Date(an).toISOString(),
+            title: '🔔 Still to do: ' + t.Title });
+        }
+      });
+    }
+    return out;
+  }
+
+  // Pick a time (or Off) for the briefing / wrap-up.
+  function timeSheet(kind) {
+    var isB = kind === 'brief', lsKey = isB ? BRIEF : WRAP, cur = lsGet(lsKey);
+    var opts = isB ? ['06:30', '07:00', '08:00', '09:00'] : ['18:00', '20:00', '21:00', '22:00'];
+    var html = '<h2>' + (isB ? '☀️ Morning briefing' : '🌙 Evening wrap-up') + '</h2>' +
+      '<p class="muted">' + (isB ? 'A morning note like “5 tasks today, first one at 9:00”.' : 'An evening nudge like “2 tasks left. Move them to tomorrow?”.') +
+      ' Turn on <b>Alerts when closed</b> in Options to get it as a notification.</p>' +
+      '<div class="seg" id="tsOpts">' + opts.map(function (o) { return '<button type="button" data-v="' + o + '">' + timeDisp(o) + '</button>'; }).join('') +
+      '<button type="button" data-v="">Off</button></div>' +
+      '<div class="row" style="margin-top:10px"><span class="muted">Or pick a time</span><input class="field" type="time" id="tsTime" aria-label="Time"></div>' +
+      '<div class="sheet-actions"><button type="button" class="btn primary" id="tsDone">Done</button></div>';
+    openSheet(html, function (s) {
+      function show() {
+        s.querySelectorAll('#tsOpts button').forEach(function (b) { b.classList.toggle('on', b.dataset.v === cur); });
+        $('tsTime').value = cur;
+      }
+      function set(v) {
+        cur = v; lsSet(lsKey, v); show(); queuePush();
+        say(v ? (isB ? 'Morning briefing at ' : 'Evening wrap-up at ') + timeDisp(v) + (isB ? ' ☀️' : ' 🌙') : (isB ? 'Morning briefing off' : 'Evening wrap-up off'));
+      }
+      s.querySelectorAll('#tsOpts button').forEach(function (b) { b.onclick = function () { set(b.dataset.v); }; });
+      $('tsTime').onchange = function () { set(this.value || ''); };
+      $('tsDone').onclick = closeSheet;
+      show();
+    });
+  }
+
+  function wrapDue() {
+    var w = lsGet(WRAP);
+    if (!w || lsGet(WRAPSHOWN) === key(today()) || Date.now() < atTime(today(), w)) return false;
+    return tasksOn(key(today())).some(function (t) { return !t.Done; });
+  }
+  function wrapSheet() {
+    lsSet(WRAPSHOWN, key(today()));
+    var tk = key(today()), open = tasksOn(tk).filter(function (t) { return !t.Done; });
+    if (!open.length) return;
+    var html = '<h2>🌙 Evening wrap-up</h2><p class="muted">' + plural(open.length, 'task') + ' still open today:</p>' +
+      '<ul class="steps">' + open.slice(0, 6).map(function (t) { return '<li>' + esc(t.Title) + '</li>'; }).join('') + (open.length > 6 ? '<li>…and ' + (open.length - 6) + ' more</li>' : '') + '</ul>' +
+      '<div class="opts"><button type="button" class="opt" data-v="move"><span class="oe">➡️</span><span class="ol">Move them to tomorrow</span></button>' +
+      '<button type="button" class="opt" data-v="keep"><span class="oe">👍</span><span class="ol">Leave them for now</span></button></div>';
+    openSheet(html, function (s) {
+      s.querySelectorAll('.opt').forEach(function (b) {
+        b.onclick = function () {
+          closeSheet();
+          if (b.dataset.v !== 'move') return;
+          setTimeout(function () {
+            var nk = key(addDays(today(), 1));
+            withUndo('Moved ' + open.length + ' to tomorrow ➡️', function () {
+              tasks.forEach(function (t) { if (t.Date === tk && !t.Done) t.Date = nk; });
+            });
+          }, 350);
+        };
+      });
+    });
+  }
+
+  // Weekly recap: done tasks of the week starting on `mon`.
+  function weekStats(mon) {
+    var total = 0, days = [], cats = {};
+    for (var i = 0; i < 7; i++) {
+      var d = addDays(mon, i), done = tasksOn(key(d)).filter(function (t) { return t.Done; });
+      total += done.length; days.push({ d: d, n: done.length });
+      done.forEach(function (t) { cats[t.Category] = (cats[t.Category] || 0) + 1; });
+    }
+    var best = days.slice().sort(function (a, b) { return b.n - a.n; })[0];
+    var fav = Object.keys(cats).sort(function (a, b) { return cats[b] - cats[a]; })[0];
+    return { total: total, best: best && best.n ? best : null, fav: fav ? cat(fav) : null };
+  }
+  function mondayOf(d) { return addDays(d, -((d.getDay() + 6) % 7)); }
+  function recapSheet(mon) {
+    mon = mon || mondayOf(today());
+    var st = weekStats(mon), thisWeek = key(mon) === key(mondayOf(today()));
+    var head = st.total >= 20 ? 'You crushed it 🎉' : st.total >= 8 ? 'Great week! 🌟' : st.total ? 'Every step counts 🌱' : 'A quiet week 🌙';
+    var html = '<h2>📊 ' + (thisWeek ? 'Your week' : 'Last week') + '</h2><div class="recap">' +
+      '<div class="recap-big">' + st.total + '</div>' +
+      '<div class="recap-title">' + (st.total ? 'task' + (st.total === 1 ? '' : 's') + ' finished. ' + head : head + ' Nothing finished yet') + '</div>' +
+      '<div class="recap-row">' +
+      (st.best ? '<span>🏆 Best day: <b>' + WDL[st.best.d.getDay()] + '</b> (' + st.best.n + ' done)</span>' : '') +
+      (st.fav ? '<span>' + st.fav.emoji + ' Favourite category: <b>' + st.fav.name + '</b></span>' : '') +
+      (streakCount() >= 2 ? '<span>🔥 ' + streakCount() + ' days in a row finishing everything</span>' : '') +
+      '</div></div><div class="sheet-actions"><button type="button" class="btn primary" id="rcOk">Nice! 🎈</button></div>';
+    openSheet(html, function () { $('rcOk').onclick = closeSheet; if (st.total) setTimeout(confetti, 300); });
+  }
+  function recapDue() {
+    var now = new Date(), dow = now.getDay(), mon;
+    if (dow === 0 && now.getHours() >= 18) mon = mondayOf(today());
+    else if (dow === 1) mon = addDays(mondayOf(today()), -7);
+    else return null;
+    return lsGet(RECAPSHOWN) === key(mon) ? null : mon;
+  }
+
+  // Shown when the app is opened (for example by tapping the evening notification), never over something else.
+  function autoPrompts() {
+    if (alarmShowing || !$('sheet').hidden || !$('alarm').hidden || $('splash')) return;
+    if (wrapDue()) { wrapSheet(); return; }
+    var mon = recapDue();
+    if (mon && weekStats(mon).total) { lsSet(RECAPSHOWN, key(mon)); recapSheet(mon); }
+  }
+
+  // "Hey Siri, add to Daily Joy": a Shortcut sends the text to the push server, and the app picks it up here.
+  function inboxCode() {
+    var c = lsGet(INBOX);
+    if (!c) {
+      var a = new Uint8Array(12), s = '';
+      (window.crypto || window.msCrypto).getRandomValues(a);
+      for (var i = 0; i < a.length; i++) s += 'abcdefghjkmnpqrstuvwxyz23456789'.charAt(a[i] % 31);
+      c = s; lsSet(INBOX, c);
+    }
+    return c;
+  }
+  var pulling = false;
+  function pullInbox() {
+    var c = lsGet(INBOX);
+    if (!c || !PUSH_SERVER || pulling) return;
+    pulling = true;
+    fetch(PUSH_SERVER + '/pull', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ code: c }) })
+      .then(function (r) { return r.json(); })
+      .then(function (d) {
+        pulling = false;
+        var items = (d && d.items) || [];
+        items.forEach(function (x) { addByVoice(String(x), true); });
+        if (items.length > 1) say('Added ' + items.length + ' tasks from Siri 🗣️');
+      })
+      .catch(function () { pulling = false; });
+  }
+  function siriSheet() {
+    var code = inboxCode(), link = PUSH_SERVER + '/add?c=' + code + '&t=';
+    var html = '<h2>🗣️ Hey Siri, add a task</h2>' +
+      '<p class="muted">Set this up once, then just say <b>“Hey Siri, Add to Daily Joy”</b> and speak your task, like “call mom at 5”.</p>' +
+      '<ol class="steps">' +
+      '<li>Open the <b>Shortcuts</b> app, tap <b>+</b>, and name it <b>Add to Daily Joy</b>.</li>' +
+      '<li>Add the action <b>Ask for Input</b> (type Text, question “What should I add?”).</li>' +
+      '<li>Add <b>URL Encode</b> and set it to <i>Provided Input</i>.</li>' +
+      '<li>Add <b>Get Contents of URL</b>. Paste the link below, then tap at its end and insert the <i>URL Encoded Text</i> variable.</li>' +
+      '<li>Done! Say “Hey Siri, Add to Daily Joy”. The task appears next time you open the app.</li></ol>' +
+      '<button type="button" class="btn soft cal-btn" id="siriCopy">📋 Copy the link</button>' +
+      '<p class="muted" style="word-break:break-all"><code>' + esc(link) + '</code></p>' +
+      '<div class="sheet-actions"><button type="button" class="btn primary" id="siriOk">Done</button></div>';
+    openSheet(html, function () {
+      $('siriOk').onclick = closeSheet;
+      $('siriCopy').onclick = function () {
+        var done = function () { say('Link copied 📋'); };
+        if (navigator.clipboard && navigator.clipboard.writeText) navigator.clipboard.writeText(link).then(done, function () { say('Press and hold the link to copy it'); });
+        else say('Press and hold the link to copy it');
+      };
+    });
   }
 
   // ---------- Effects (sparkle & confetti) ----------
@@ -1516,6 +1793,8 @@
     render();
     checkAlarms();
     if (pushOn && Date.now() - pushLast > 10 * 60000) syncPush();   // refresh the server's list now and then
+    pullInbox();
+    autoPrompts();
   }
   document.addEventListener('visibilitychange', function () { if (!document.hidden) tick(); });
   setInterval(tick, 60000);
@@ -1562,4 +1841,6 @@
   fillRepeats();
   render();
   checkAlarms();
+  pullInbox();
+  setTimeout(autoPrompts, 2600);   // after the splash has gone
 })();
