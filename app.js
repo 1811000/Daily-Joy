@@ -398,7 +398,7 @@
     var input = $('newTitle'), text = input.value.trim();
     if (!text) { input.focus(); return; }
     input.value = '';
-    smartAdd(text, true);            // AI when it's on and reachable, otherwise the built-in parser (dates, priority, several tasks)
+    addByVoice(text, true);          // typed text always uses the built-in parser (dates, priority, several tasks); only the mic uses Smart add (AI), to save the daily limit
     newTime = '';
   }
   // Adds a task (and, when a repeat is chosen, starts its series and creates the coming ones).
