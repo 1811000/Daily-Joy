@@ -18,7 +18,7 @@ A free to-do app and reminder that installs on your iPhone Home Screen. No App S
 
 - **Add tasks the easy way.** Type or speak naturally: *"Gym at 6pm tomorrow"*. You can even say several tasks in one sentence.
 - **Smart add (AI).** Tap the microphone and say a whole sentence like *"Tomorrow gym at 6pm, call mom after that and buy milk Friday morning"*. An AI splits it into separate tasks with the right days and times, and you confirm them before they are saved. You can also change a task by sentence, like *"change check Claude to 5pm"*, cancel or delete one (*"cancel the gym"*), mark one done (*"I washed the car"*), or raise or lower its priority (*"raise the priority of check Claude"*). Changes update the existing task instead of adding a new one. Optional, and it falls back to the built-in parser when it is off or offline. When the phone has no connection at all (no Wi-Fi and no cellular), a small notice asks you to connect so Smart add can work.
-- **Swipe to act.** Swipe right to finish a task. Swipe left to move it to tomorrow.
+- **Swipe to act.** Swipe left to finish a task. Swipe right to pin it to the top of the day (swipe right again to unpin).
 - **Tap a task to edit it.** Change the time, add notes, make it repeat, or pick a category.
 - **Reminders and alarms.** An alarm card with a chime appears when a task is due.
 - **Alerts when the app is closed.** Optional push notifications (see [Alerts](#alerts-when-the-app-is-closed)).
@@ -57,8 +57,9 @@ A printable version of these steps is in [docs/Daily-Joy-iPhone-Install-Guide.pd
 | I want to... | Do this |
 |---|---|
 | Add a task | Type it, or tap the microphone and say it. Include a time or day in plain words. A floating microphone also sits at the bottom right, always in reach. Tap the microphone again to cancel. |
-| Finish a task | Swipe it right. |
-| Move it to tomorrow | Swipe it left. |
+| Finish a task | Swipe it left. |
+| Pin it to the top (Top 3) | Swipe it right. Swipe right again to unpin. |
+| Move it to another day | Tap the task and pick the day. |
 | Change time, notes, repeat or category | Tap the task. |
 | Move everything unfinished to tomorrow | Menu > Move unfinished to tomorrow. |
 | Clear finished tasks | Menu > Clear done tasks. |

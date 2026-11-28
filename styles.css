@@ -46,7 +46,7 @@ html[data-theme="dark"] {
 * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
 [hidden] { display: none !important; }
 html, body { margin: 0; padding: 0; }
-html { overscroll-behavior: none; touch-action: manipulation; }
+html { overscroll-behavior: none; touch-action: pan-x pan-y; }   /* scrolling only: no pinch zoom, no double-tap zoom */
 /* hide the scroll bar everywhere (scrolling still works) */
 html, body, * { scrollbar-width: none; -ms-overflow-style: none; }
 *::-webkit-scrollbar { display: none; width: 0; height: 0; background: transparent; }
@@ -61,7 +61,7 @@ body {
   -webkit-touch-callout: none;   /* no long-press callout */
   -webkit-user-select: none;
   user-select: none;
-  touch-action: manipulation;    /* no double-tap zoom; pinch still works */
+  touch-action: pan-x pan-y;     /* no pinch zoom and no double-tap zoom */
 }
 button, input, textarea, select { font: inherit; color: inherit; }
 input, textarea, .field { -webkit-user-select: text; user-select: text; }
@@ -280,7 +280,8 @@ body:has(#sheet:not([hidden])) .fab-mic, body:has(#alarm:not([hidden])) .fab-mic
 .task[data-swipe="hint"]::after { content: "↔"; right: 0; left: 0; justify-content: center; color: var(--sub); background: color-mix(in srgb, var(--card) 70%, transparent); }
 .task[data-swipe="done"]::after { content: "✅ Done"; left: 0; right: 0; justify-content: flex-end; background: var(--success); }
 .task[data-swipe="undo"]::after { content: "↩️ Back to to-do"; left: 0; right: 0; justify-content: flex-end; background: var(--accent2); }
-.task[data-swipe="move"]::after { content: "Next day ➡️"; left: 0; right: 0; justify-content: flex-start; background: var(--accent); }
+.task[data-swipe="pin"]::after { content: "📌 Pin to top"; left: 0; right: 0; justify-content: flex-start; background: var(--accent); }
+.task[data-swipe="unpin"]::after { content: "📌 Unpin"; left: 0; right: 0; justify-content: flex-start; background: var(--accent2); }
 .task.nope { animation: nope .55s ease; }
 @keyframes nope { 0%, 100% { transform: translateX(0); } 15% { transform: translateX(-12px) rotate(-1deg); } 35% { transform: translateX(10px) rotate(1deg); } 55% { transform: translateX(-7px); } 75% { transform: translateX(4px); } }
 .task.done { opacity: .62; }

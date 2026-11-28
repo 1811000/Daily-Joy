@@ -1066,7 +1066,7 @@
   var WELCOMED = 'dailyjoy.welcomed';
   var TOUR = [
     ['✨', 'Add tasks in seconds', 'Type in the box, or tap 🎤 and say it. Try <i>“Gym at 6pm tomorrow”</i>. Dates and times are understood, and one sentence can hold several tasks: <i>“gym and call mom”</i>.'],
-    ['👆', 'Swipe and tap', 'Swipe a task <b>right</b> to finish it ✅ and <b>left</b> to move it to tomorrow. Tap a task to change its time, notes, repeat or category.'],
+    ['👆', 'Swipe and tap', 'Swipe a task <b>left</b> to finish it ✅ and <b>right</b> to pin it to the top 📌 (swipe right again to unpin). Tap a task to change its time, notes, repeat or category.'],
     ['⏰', 'Reminders', 'Give a task a time and Daily Joy rings when it’s due. Turn on <b>Alerts when closed</b> in ••• Options so reminders still arrive with the app closed. <b>🔔 Keep reminding</b> (needs a time) repeats the alert until you finish.'],
     ['🧭', 'Explore the rest', 'Tap <b>•••</b> for Options: morning briefing, evening wrap-up, weekly recap, Siri, voice language and backups. You can see this tour again from Options.']
   ];
@@ -1356,7 +1356,7 @@
       '<h3>Extras</h3><div class="seg" id="eFlags">' +
         '<button type="button" data-v="Top">📌 Top 3 today</button>' +
         '<button type="button" data-v="Nag">🔔 Keep reminding</button></div>' +
-      '<p class="muted">Top 3 pins it above everything else. Keep reminding repeats the alert every few minutes until it is done (High priority always does).</p>' +
+      '<p class="muted" id="eFlagNote"></p>' +
       '<h3>Category</h3><div class="seg" id="eCat">' +
         CATS.map(function (c) { return '<button type="button" data-v="' + c.key + '" style="--sc:' + c.color + '">' + c.emoji + ' ' + c.name + '</button>'; }).join('') + '</div>' +
       '<h3>Notes</h3><textarea class="field" id="eNotes" placeholder="Anything to remember?">' + esc(t.Notes) + '</textarea>' +
@@ -1374,6 +1374,9 @@
         $('eTimeTxt').textContent = d.Time ? '🕒 ' + timeDisp(d.Time) + ' · ' + friendly(parseKey(d.Date)) : 'No time set · ' + friendly(parseKey(d.Date));
         $('eNoTime').hidden = !d.Time;
         $('eCal').hidden = !d.Time;
+        // "Keep reminding" only makes sense for a task that has a time.
+        s.querySelector('#eFlags [data-v="Nag"]').hidden = !d.Time;
+        $('eFlagNote').textContent = 'Top 3 pins it above everything else.' + (d.Time ? ' Keep reminding repeats the alert every few minutes until it is done (High priority always does).' : '');
       }
       s.querySelectorAll('#eWhen button').forEach(function (b) { b.onclick = function () { d.Date = b.dataset.v; sync(); }; });
       s.querySelectorAll('#ePrio button').forEach(function (b) { b.onclick = function () { d.Priority = +b.dataset.v; sync(); }; });
@@ -1400,7 +1403,7 @@
         var moved = d.Date !== t.Date;
         t.Title = title; t.Notes = $('eNotes').value.replace(/\s+$/, '');
         t.Date = d.Date; t.Time = d.Time; t.Priority = d.Priority; t.Category = d.Category;
-        t.Nag = !!d.Nag; t.Top = !!d.Top;
+        t.Nag = !!d.Nag && !!d.Time; t.Top = !!d.Top;
         var topMsg = '';
         if (t.Top) {   // only three can be pinned per day
           var pinned = tasksOn(t.Date).filter(function (x) { return x !== t && x.Top && !x.Done; });
@@ -1975,6 +1978,8 @@
 
   // ---------- Wiring ----------
   $('addForm').addEventListener('submit', addTask);
+  // No pinch zoom (iPhone sends these gesture events for a pinch).
+  ['gesturestart', 'gesturechange', 'gestureend'].forEach(function (ev) { document.addEventListener(ev, function (e) { e.preventDefault(); }); });
   $('micBtn').onclick = voiceAdd;
   $('fabMic').onclick = voiceAdd;
   $('catChip').onclick = function () { catSheet(newCat, function (v) { newCat = v; renderAddChips(); }); };
@@ -2001,7 +2006,7 @@
     }, { passive: true });
   })();
 
-  // Swipe a task: right = done, left = move to the next day.
+  // Swipe a task: left = done, right = pin it to the top (or unpin).
   // Minutes until a timed reminder is due (0 when it has no time or the time has come).
   function minutesUntil(t) {
     if (!t.Time) return 0;
@@ -2036,10 +2041,14 @@
     'Okay, one more time 💪'
   ];
   var lastSwipe = 0;
-  function moveOneDay(id) {
+  // Swipe right: pin the task to the top of its day (Top 3), or unpin it if it is already pinned.
+  function togglePin(id) {
     var t = find(id); if (!t) return;
-    var to = addDays(parseKey(t.Date), 1);
-    withUndo('Moved to ' + friendly(to) + ' ➡️', function () { t.Date = key(to); });
+    if (t.Done) { say('Finished tasks can’t be pinned'); return; }
+    if (t.Top) { withUndo('Unpinned 📌', function () { t.Top = false; }); return; }
+    var pinned = tasksOn(t.Date).filter(function (x) { return x !== t && x.Top && !x.Done; });
+    if (pinned.length >= 3) { say('Top 3 is full for that day. Unpin one first 📌'); return; }
+    withUndo('Pinned to the top 📌', function () { t.Top = true; });
   }
   (function () {
     var list = $('list'), card = null, sx = 0, sy = 0, dx = 0, dir = null, LIMIT = 90;
@@ -2065,7 +2074,8 @@
       card.style.transition = 'none';
       card.style.transform = 'translateX(' + dx + 'px)';
       var isDone = card.classList.contains('done');
-      card.dataset.swipe = Math.abs(dx) < LIMIT ? 'hint' : (dx > 0 ? 'move' : (isDone ? 'undo' : 'done'));
+      var tkn = find(card.dataset.id);
+      card.dataset.swipe = Math.abs(dx) < LIMIT ? 'hint' : (dx > 0 ? (isDone ? 'hint' : (tkn && tkn.Top ? 'unpin' : 'pin')) : (isDone ? 'undo' : 'done'));
     }, { passive: true });
     function end() {
       var c = card; card = null;
@@ -2082,7 +2092,7 @@
           if (wait > 0 && !tasksOn(tk.Date).every(function (x) { return x.Done; })) say(pick(EARLY) + ' — ' + waitText(wait) + ' ahead of time');
         }
       }
-      else { c.style.transition = 'transform .2s ease, opacity .2s'; c.style.transform = 'translateX(110%)'; c.style.opacity = '0'; setTimeout(function () { moveOneDay(id); }, 180); }
+      else { reset(c); togglePin(id); }   // the card springs back, then the list re-sorts
     }
     list.addEventListener('touchend', end, { passive: true });
     list.addEventListener('touchcancel', function () { if (card) { reset(card); card = null; } }, { passive: true });
